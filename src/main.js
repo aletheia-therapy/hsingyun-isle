@@ -1,19 +1,13 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
 import { SPOTS, ZONES, START } from './data/spots.js';
 import { TASKS } from './data/tasks.js';
 import { World } from './scene/world.js';
 import { Explorer } from './scene/explorer.js';
 import { TPCamera } from './scene/tpcam.js';
+import { Guide } from './scene/guide.js';
 import { heightAt } from './scene/terrain.js';
 import { Card } from './ui/card.js';
 import { Chat, esc } from './ui/chat.js';
-import { voice } from './ui/voice.js';
 import { music } from './ui/music.js';
 import { state } from './state.js';
 import { GUIDE, ABOUT } from './ui/pages.js';
@@ -23,9 +17,10 @@ const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia('(max-width: 860px)').matches;
 const touch = matchMedia('(pointer: coarse)').matches;
 const TALK_R = 2.4;
-/** 建議路線：由淺入深。先是只要選擇的站，再到需要動手的任務，最後是帶路 */
-const ORDER = ['origin', 'speech', 'confidence', 'deed', 'heart', 'joy', 'hope', 'ease', 'lecture', 'media', 'vowterrace'];
+/** 建議路線：沿著島走一圈（山門 → 三好村 → 四給街 → 講堂 → 影音堂 → 山頂），每一站都在上一站附近 */
+const ORDER = ['origin', 'deed', 'speech', 'heart', 'confidence', 'hope', 'joy', 'ease', 'lecture', 'media', 'vowterrace'];
 const NUM = '①②③④⑤⑥⑦⑧⑨⑩⑪';
+const INTRO_KEY = 'hsingyun-isle:intro';
 
 function fail(msg) {
   $('error-msg').textContent = msg;
@@ -39,16 +34,20 @@ function webglOK() {
 function boot() {
   if (!webglOK()) { fail('這個瀏覽器目前無法顯示 3D 畫面。請改用新版 Chrome、Edge、Firefox 或 Safari，並確認已開啟硬體加速。'); return; }
   const lowPower = touch || Math.min(innerWidth, innerHeight) < 600;
+  const fixedRes = /[?&]fixedres\b/.test(location.search);
 
-  /* ---------- 渲染 ---------- */
+  /* ---------- 渲染：直接繪製（不用後製），原生反鋸齒，依效能自動調整解析度 ---------- */
   const canvas = $('scene');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, lowPower ? 1.5 : 1.75));
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  const prMax = Math.min(devicePixelRatio, lowPower ? 1.25 : 1.5);
+  let prNow = prMax;
+  renderer.setPixelRatio(prNow);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.08;
+  renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
+  const t0 = performance.now();
   const world = new World(SPOTS, { lowPower });
   const ground = (x, z) => world.groundAt(x, z);
   const view = new TPCamera(ground);
@@ -57,25 +56,9 @@ function boot() {
   world.scene.add(explorer.object);
   explorer.place(START[0], START[1]);
   explorer.faceTowards(0, 0);
-
-  const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: lowPower ? 0 : 4 });
-  const composer = new EffectComposer(renderer, target);
-  composer.addPass(new RenderPass(world.scene, view.camera));
   view.follow(START[0], 0, START[1]);
-  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.14, 0.5, 0.92);
-  composer.addPass(bloom);
-  const vignette = new ShaderPass(VignetteShader);
-  vignette.uniforms.offset.value = 1.0;
-  vignette.uniforms.darkness.value = 0.22;
-  composer.addPass(vignette);
-  // 島嶼光明度：善念越多，畫面越飽滿明亮
-  const grade = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, uSat: { value: 0.92 }, uLift: { value: 1.0 } },
-    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'uniform sampler2D tDiffuse; uniform float uSat; uniform float uLift; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.299, 0.587, 0.114)); vec3 g = mix(vec3(l), c.rgb, uSat); g = (g - 0.5) * 1.05 + 0.5; g *= vec3(1.01, 1.0, 0.985) * uLift; gl_FragColor = vec4(g, c.a); }',
-  });
-  composer.addPass(grade);
-  composer.addPass(new OutputPass());
+  const guide = new Guide(world);
+  const buildMs = Math.round(performance.now() - t0);
 
   /* ---------- 狀態 ---------- */
   let onIsland = false, here = null, nearId = null, navTarget = null, running = false, stillT = 0;
@@ -83,9 +66,10 @@ function boot() {
   const joy = new THREE.Vector2();
   const chatSubs = new Set();
   let lastChatLen = state.get().chat.length;
-  const zoneOf = (spotId) => ZONES.find((z) => z.id === SPOTS.find((s) => s.id === spotId)?.zone);
-  const taskOf = (spotId) => TASKS.find((t) => t.id === SPOTS.find((s) => s.id === spotId)?.task);
-  const labelOf = (s) => { const t = taskOf(s.id); return t ? `${t.npc.name}（${t.virtue}）` : s.place; };
+  const spotOf = (id) => SPOTS.find((s) => s.id === id);
+  const zoneOf = (spotId) => ZONES.find((z) => z.id === spotOf(spotId)?.zone);
+  const taskOf = (spotId) => TASKS.find((t) => t.id === spotOf(spotId)?.task);
+  const labelOf = (s) => { const t = taskOf(s.id); return t ? `${t.npc.name}（${t.virtue}）` : s.npc ? `導覽員 ${s.npc.name}` : s.place; };
   const brightness = () => SPOTS.filter((s) => state.isDone(s.id)).length / SPOTS.length;
   let glowNow = brightness();
   state.on((s) => {
@@ -94,38 +78,55 @@ function boot() {
     lastChatLen = s.chat.length;
   });
 
-  /* ---------- 介面：善念地圖與地圖標記 ---------- */
+  /* ---------- 善念地圖（左側清單） ---------- */
   const zoneList = $('zone-list');
-  const pinsEl = $('pins');
-  const pins = new Map();
   zoneList.innerHTML = ZONES.map((z) => `
     <section class="zone" style="--zc:${z.color}">
       <h3 class="zone-h"><span class="zone-no">${z.no}</span><span class="zone-name">${esc(z.name)}</span><span class="zone-n" data-z="${z.id}"></span></h3>
       <ol class="zone-spots${SPOTS.filter((s) => s.zone === z.id).length > 2 ? ' is-grid' : ''}">${SPOTS.filter((s) => s.zone === z.id).map((s) => { const t = taskOf(s.id); return `
-        <li><button type="button" class="place" data-id="${s.id}"><span class="place-name"><i class="place-no">${NUM[ORDER.indexOf(s.id)] || ''}</i>${esc(t ? t.virtue : s.place)}</span><span class="place-sub">${esc(t ? t.npc.name : z.sub)}</span></button></li>`; }).join('')}
+        <li><button type="button" class="place" data-id="${s.id}"><span class="place-name"><i class="place-no">${NUM[ORDER.indexOf(s.id)] || ''}</i>${esc(t ? t.virtue : s.place)}</span><span class="place-sub">${esc(t ? t.npc.name : s.npc ? `導覽員 ${s.npc.name}` : z.sub)}</span></button></li>`; }).join('')}
       </ol>
     </section>`).join('');
   zoneList.querySelectorAll('.place').forEach((b) => b.addEventListener('click', () => setNav(b.dataset.id)));
+  // 手機：點標題展開或收合清單
+  const placesEl = $('places'), placesHead = placesEl.querySelector('.places-head');
+  const togglePlaces = () => { if (narrow()) placesEl.classList.toggle('is-open'); };
+  placesHead.addEventListener('click', togglePlaces);
+  placesHead.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); togglePlaces(); } });
   $('progress-total').textContent = String(SPOTS.length);
+
+  /* ---------- 名牌：每位島民頭上都有名字、要幫的事與狀態 ---------- */
+  const tagsEl = $('pins');
+  const tags = new Map();
   for (const s of SPOTS) {
-    const z = ZONES.find((x) => x.id === s.zone), t = taskOf(s.id);
-    const p = document.createElement('button');
-    p.type = 'button'; p.tabIndex = -1;
-    p.className = 'pin';
-    p.style.setProperty('--zc', z.color);
-    p.innerHTML = `<span class="pin-no">${z.no}</span><span class="pin-name">${esc(t ? t.virtue : s.place)}</span>`;
-    p.addEventListener('click', () => setNav(s.id));
-    pinsEl.appendChild(p);
-    pins.set(s.id, p);
+    const t = taskOf(s.id), z = ZONES.find((x) => x.id === s.zone);
+    const el = document.createElement('button');
+    el.type = 'button'; el.tabIndex = -1; el.className = 'tag';
+    el.style.setProperty('--zc', t?.color || z.color);
+    const name = t ? t.npc.name : s.npc ? s.npc.name : s.place;
+    const sub = t ? t.virtue : s.npc ? '導覽員' : z.sub;
+    el.innerHTML = `<i class="tag-st" aria-hidden="true"></i><b>${esc(name)}</b><small>${esc(sub)}</small><span class="tag-goal">目標</span>`;
+    el.addEventListener('click', () => setNav(s.id));
+    tagsEl.appendChild(el);
+    el.style.visibility = 'hidden';
+    tags.set(s.id, { el, npc: !!(t || s.npc), last: '', vis: 'hidden' });
   }
+  function tagStatus(id) {
+    if (state.isDone(id)) return 'done';
+    const t = taskOf(id), q = t ? state.get().tasks[t.id]?.quest : null;
+    if (q === 'active') return 'quest';
+    if (q === 'done') return 'back';
+    return tags.get(id).npc ? 'need' : 'place';
+  }
+
   function renderLists() {
     const st = state.get();
+    const ob = objective();
     zoneList.querySelectorAll('.place').forEach((b) => {
       b.classList.toggle('is-done', st.done.includes(b.dataset.id));
-      b.setAttribute('aria-current', String(b.dataset.id === navTarget));
+      b.setAttribute('aria-current', String(b.dataset.id === ob.spot));
     });
     zoneList.querySelectorAll('.zone-n').forEach((n) => { const p = state.zoneProgress(n.dataset.z); n.textContent = p.done >= p.total ? '✓' : `${p.done}/${p.total}`; n.classList.toggle('is-full', p.done >= p.total); });
-    pins.forEach((p, id) => { p.classList.toggle('is-done', st.done.includes(id)); p.classList.toggle('is-target', id === navTarget); });
     const n = SPOTS.filter((s) => st.done.includes(s.id)).length;
     $('progress').textContent = String(n);
     $('progress-fill').style.width = `${(n / SPOTS.length) * 100}%`;
@@ -134,6 +135,7 @@ function boot() {
     $('badges').innerHTML = LEVELS.map((l) => { const ok = l.spots.every((x) => st.done.includes(x)); return `<span class="badge${ok ? ' is-on' : ''}" style="--bc:${l.color}" title="${l.badge}">${l.mark}</span>`; }).join('');
     const cur = LEVELS.find((l) => !l.spots.every((x) => st.done.includes(x)));
     $('level').innerHTML = cur ? `<b>${cur.name}</b><span>${cur.spots.filter((x) => st.done.includes(x)).length} / ${cur.spots.length}</span>` : '<b>全部過關！</b><span>島嶼已完全點亮</span>';
+    for (const [id, tg] of tags) { const s = tagStatus(id); if (s !== tg.last) { tg.el.dataset.st = s; tg.last = s; } }
   }
   /** 善念值飄字 */
   function floatPoints(n) {
@@ -152,7 +154,8 @@ function boot() {
     box.querySelector('button').addEventListener('click', () => { box.hidden = true; });
     setTimeout(() => { box.hidden = true; }, 5000);
   }
-  const hint = (t) => { $('hint').textContent = t; $('hint').classList.toggle('is-on', !!t); };
+  let hintTimer = 0;
+  const hint = (t, ms = 0) => { $('hint').textContent = t; $('hint').classList.toggle('is-on', !!t); clearTimeout(hintTimer); if (t && ms) hintTimer = setTimeout(() => hint(''), ms); };
   function toast(t) {
     const el = document.createElement('div');
     el.className = 'toast'; el.textContent = t;
@@ -161,31 +164,6 @@ function boot() {
     setTimeout(() => { el.classList.remove('is-in'); setTimeout(() => el.remove(), 500); }, 2600);
   }
 
-  /* ---------- 導航：選一個目的地，旅人頭上的箭頭會指路 ---------- */
-  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.6, 3), new THREE.MeshBasicMaterial({ color: '#f2c25c', transparent: true, opacity: 0.92, depthTest: false }));
-  arrow.geometry.rotateX(Math.PI / 2); arrow.renderOrder = 20; arrow.visible = false;
-  world.scene.add(arrow);
-  function setNav(id) {
-    if (!onIsland) enterIsland();
-    navTarget = id;
-    renderLists();
-    const s = SPOTS.find((x) => x.id === id);
-    hint(`導航：${labelOf(s)}。跟著頭上的金色箭頭走過去${touch ? '' : '（WASD 或方向鍵）'}。`);
-  }
-  const navPoint = () => {
-    const q = activeQuest();
-    if (q && q.task.quest.type !== 'escort') {
-      const left = world.items.get(q.task.id).filter((it) => !it.done);
-      if (left.length) {
-        const p = explorer.pos;
-        const best = left.reduce((b, it) => (Math.hypot(it.group.position.x - p.x, it.group.position.z - p.y) < Math.hypot(b.group.position.x - p.x, b.group.position.z - p.y) ? it : b));
-        return new THREE.Vector2(best.group.position.x, best.group.position.z);
-      }
-    }
-    if (q?.task.quest.type === 'escort') { const t = world.spots.get(q.task.quest.to); return t.frontV; }
-    return navTarget ? world.spots.get(navTarget).frontV : null;
-  };
-
   /* ---------- 島上任務 ---------- */
   const activeQuest = () => {
     for (const t of TASKS) if (t.quest && state.get().tasks[t.id]?.quest === 'active') return { task: t, spot: SPOTS.find((s) => s.task === t.id) };
@@ -193,7 +171,7 @@ function boot() {
   };
   const questProgress = (taskId) => {
     const t = TASKS.find((x) => x.id === taskId);
-    if (t.quest.type === 'escort') return { done: state.get().tasks[taskId]?.quest === 'done' ? 1 : 0, total: 1 };
+    if (t.quest.type === 'escort' || t.quest.type === 'still') return { done: state.get().tasks[taskId]?.quest === 'done' ? 1 : 0, total: 1 };
     const list = world.items.get(taskId) || [];
     return { done: list.filter((i) => i.done).length, total: list.length };
   };
@@ -203,32 +181,21 @@ function boot() {
     const t = TASKS.find((x) => x.id === taskId);
     state.setTask(taskId, { quest: 'active' });
     (world.items.get(taskId) || []).forEach((it) => { if (!it.done) it.group.visible = true; });
-    world.npcs.get(SPOTS.find((s) => s.task === taskId).id)?.setBadge('quest');
-    card.hide();
-    renderQuestBar();
+    closeCard();
     toast(`任務開始：${t.quest.label}`);
-    voice.say(t.quest.type === 'escort' ? `${t.npc.name}會跟著你。帶她走到 AI 智慧講堂吧。` : `${t.quest.label}。跟著金色箭頭走過去。`, 'narrator');
-    reframe();
-  }
-  function renderQuestBar() {
-    const q = activeQuest(), bar = $('quest-bar');
-    if (!q) { bar.hidden = true; return; }
-    const p = questProgress(q.task.id);
-    bar.hidden = false;
-    bar.innerHTML = `<span class="qb-tag" style="--tc:${q.task.color}">${esc(q.task.virtue)}</span><b>${esc(q.task.quest.label)}</b>${q.task.quest.type === 'escort' ? '' : `<span class="qb-n">${p.done} / ${p.total}</span>`}`;
+    hint('看畫面上方的「目前目標」，跟著地上的金色箭頭走。', 6000);
+    renderLists();
   }
   function finishQuest(q) {
     state.setTask(q.task.id, { quest: 'done' });
-    world.npcs.get(q.spot.id)?.setBadge('need');
-    renderQuestBar();
+    $('breath').hidden = true;
     if (q.task.quest.type === 'escort') {
       toast(`✦ 帶到了！${q.task.npc.name}想跟你說句話`);
       openSpot(q.spot.id);
     } else {
       toast(`✦ 完成！回去找${q.task.npc.name}吧`);
-      voice.say(`完成了！回去找${q.task.npc.name}吧。`, 'narrator');
-      navTarget = q.spot.id; renderLists();
     }
+    renderLists();
   }
   function questTick(dt) {
     const q = activeQuest();
@@ -250,7 +217,7 @@ function boot() {
     }
     if (q.task.quest.type === 'still') {
       const it = world.items.get(q.task.id)[0], gp = it.group.position;
-      const near = Math.hypot(gp.x - p.x, gp.z - p.y) < 2.4;
+      const near = Math.hypot(gp.x - p.x, gp.z - p.y) < 1.6;
       const br = $('breath');
       if (near && !explorer.manualMoving) {
         stillT += dt;
@@ -259,8 +226,14 @@ function boot() {
         br.querySelector('i').style.transform = `scale(${0.55 + 0.45 * Math.sin(ph * Math.PI)})`;
         br.querySelector('b').textContent = ph < 0.5 ? '吸氣……' : '吐氣……';
         br.querySelector('small').textContent = `第 ${Math.min(3, Math.floor(stillT / 4) + 1)} / 3 次呼吸`;
+        br.querySelector('span').textContent = '站著不要動，跟著光圈慢慢呼吸';
         if (stillT >= q.task.quest.secs) { br.hidden = true; stillT = 0; it.collect(); const pts = state.addPoints(`q:${q.task.id}:0`, 15); if (pts) floatPoints(pts); finishQuest(q); }
-      } else { br.hidden = true; if (!near) stillT = 0; }
+      } else if (near) {
+        br.hidden = false;
+        br.querySelector('b').textContent = '先停下來';
+        br.querySelector('small').textContent = '';
+        br.querySelector('span').textContent = '放開方向鍵，站在蒲團上不要動';
+      } else { br.hidden = true; stillT = 0; }
       return;
     }
     let got = false;
@@ -271,23 +244,133 @@ function boot() {
     }
     if (got) {
       const pr = questProgress(q.task.id);
-      renderQuestBar();
       if (pr.done >= pr.total) finishQuest(q);
-      else voice.say(`還差 ${pr.total - pr.done} 個。`, 'narrator');
+      else toast(`${q.task.quest.item === 'lamp' ? '點亮了' : '撿到了'}！還差 ${pr.total - pr.done} 個`);
     }
   }
   function restoreQuests() {
     for (const t of TASKS) {
       const st = state.get().tasks[t.id]?.quest;
       const items = world.items.get(t.id) || [];
-      if (st === 'done') items.forEach((it) => { it.collect(); if (it.kind !== 'lamp') it.group.visible = false; else it.group.visible = true; });
+      if (st === 'done') items.forEach((it) => { it.collect(); it.group.visible = it.kind === 'lamp' || it.kind === 'lotus'; });
       if (st === 'active') {
         if (t.quest.type === 'escort') state.setTask(t.id, { quest: undefined });      // 重新整理後從頭帶路
-        else items.forEach((it) => { it.group.visible = true; });
+        else items.forEach((it) => { if (!it.done) it.group.visible = true; });
       }
-      if (t.quest?.type === 'light' && st !== 'done') items.forEach((it) => { it.group.visible = true; });   // 熄滅的燈一直都在
     }
-    renderQuestBar();
+  }
+
+  /* ---------- 目前目標：整個遊戲只有一個「下一步」，畫面上方、地上的箭頭與光柱都跟著它 ---------- */
+  const v2 = (it) => new THREE.Vector2(it.group.position.x, it.group.position.z);
+  function objective() {
+    const st = state.get();
+    const q = activeQuest();
+    if (q) {
+      const t = q.task, type = t.quest.type, npc = t.npc.name;
+      if (type === 'escort') {
+        const to = world.spots.get(t.quest.to);
+        return { kind: 'quest', tag: '任務', color: t.color, title: `帶${npc}走到「${to.place}」`, sub: `${npc}會跟在你身後`, target: to.frontV, key: 'esc:' + t.id, spot: t.quest.to };
+      }
+      const items = world.items.get(t.id) || [];
+      if (type === 'still') {
+        return { kind: 'quest', tag: '任務', color: t.color, title: '走到湖邊發光的蒲團上，站著不要動', sub: '站好後，跟著畫面中間的光圈呼吸三次', target: v2(items[0]), key: 'still:' + t.id, still: true };
+      }
+      const left = items.filter((it) => !it.done);
+      if (left.length) {
+        const p = explorer.pos;
+        const best = left.reduce((b, it) => (it.group.position.distanceToSquared(new THREE.Vector3(p.x, it.group.position.y, p.y)) < b.group.position.distanceToSquared(new THREE.Vector3(p.x, b.group.position.y, p.y)) ? it : b));
+        const pr = questProgress(t.id);
+        return { kind: 'quest', tag: `任務 ${pr.done}/${pr.total}`, color: t.color, title: t.quest.label, sub: type === 'light' ? '走到發光的石燈旁，燈就會亮' : '走到光柱裡就會自動撿起來', target: v2(best), key: `item:${t.id}:${items.indexOf(best)}`, extras: left.filter((x) => x !== best).map(v2) };
+      }
+    }
+    for (const t of TASKS) if (t.quest && st.tasks[t.id]?.quest === 'done') {
+      const s = SPOTS.find((x) => x.task === t.id);
+      if (!state.isDone(s.id)) return { kind: 'return', tag: '回報', color: t.color, title: `回去找 ${t.npc.name}`, sub: `告訴${t.npc.name}你幫好了`, target: world.spots.get(s.id).frontV, key: 'spot:' + s.id, spot: s.id };
+    }
+    if (navTarget) {
+      const s = world.spots.get(navTarget);
+      return { kind: 'pick', tag: '自選目的地', color: '#5a6fa6', title: `前往 ${labelOf(s)}`, sub: '', target: s.frontV, key: 'spot:' + navTarget, spot: navTarget };
+    }
+    const next = ORDER.find((x) => !state.isDone(x));
+    if (next) {
+      const s = world.spots.get(next), t = taskOf(next);
+      const step = ORDER.filter((x) => state.isDone(x)).length + 1;
+      const title = t ? `去找 ${t.npc.name}（${t.virtue}）` : next === 'origin' ? '去找導覽員 小蓮' : next === 'vowterrace' ? '登上山頂的「願行台」' : `前往「${s.place}」`;
+      const sub = t ? `${t.npc.name}遇到了一點困難` : next === 'origin' ? '她在山門旁的石碑前，會告訴你這座島在做什麼' : next === 'lecture' ? '和 AI 聊聊你生活中的難題' : next === 'media' ? '看看三好四給在世界各地的影片' : '選一個你願意做到的小行動';
+      return { kind: 'next', tag: `第 ${step} 站／共 ${ORDER.length} 站`, color: t?.color || zoneOf(next).color, title, sub, target: s.frontV, key: 'spot:' + next, spot: next };
+    }
+    return { kind: 'free', tag: '全部完成', color: '#b8863b', title: '整座島都被你點亮了！', sub: '可以自由走走，或打開 AI 導覽聊聊天', target: null, key: 'free' };
+  }
+
+  const obEl = $('objective'), obArrow = obEl.querySelector('.ob-arrow');
+  let obLast = '', obT = 0, ob = objective();
+  function renderObjective(dt) {
+    obT += dt;
+    if (obT < 0.2) return;
+    obT = 0;
+    ob = objective();
+    const p = explorer.pos;
+    let sub = ob.sub;
+    if (ob.target) {
+      const d = Math.hypot(ob.target.x - p.x, ob.target.y - p.y);
+      const near = ob.spot && nearId === ob.spot;
+      if (near) sub = `${touch ? '點下方的按鈕' : '按 Enter'}，${talkVerb(ob.spot)}`;
+      else if (ob.still && d < 1.6) sub = '很好！站著不要動，跟著光圈呼吸';
+      else sub = `${sub ? sub + '・' : ''}跟著地上的金色箭頭走${d > 3 ? `（還有 ${Math.round(guide.remaining ?? d)} 公尺）` : ''}`;
+    }
+    const html = `<span class="ob-tag" style="--tc:${ob.color}">${esc(ob.tag)}</span><b class="ob-title">${esc(ob.title)}</b><span class="ob-sub">${esc(sub)}</span>`;
+    if (html !== obLast) { obEl.querySelector('.ob-text').innerHTML = html; obLast = html; }
+    if (ob.spot !== obSpot) {
+      obSpot = ob.spot;
+      zoneList.querySelectorAll('.place').forEach((b) => b.setAttribute('aria-current', String(b.dataset.id === ob.spot)));
+    }
+  }
+  let obSpot = null;
+  const talkVerb = (id) => { const s = spotOf(id), t = taskOf(id); return t ? `和 ${t.npc.name} 說話` : s.npc ? `和 ${s.npc.name} 說話` : `進入「${s.place}」`; };
+
+  /** 地上箭頭與目標光圈 */
+  const showWorld = () => onIsland && !card.open && intro.hidden;
+  function updateGuide() {
+    const on = showWorld();
+    guide.setTarget(on ? ob.target : null, ob.key, ob.extras || []);
+    const escort = activeQuest()?.task.quest.type === 'escort';
+    world.rings.forEach((r, id) => { r.show = on && (id === ob.spot || (id === nearId && !escort)); r.hot = id === nearId; });
+  }
+  /** 名牌（畫完 3D 之後投影到螢幕上）與「往哪走」的小箭頭 */
+  const tmp = new THREE.Vector3();
+  const setStyle = (tg, k, v) => { if (tg[k] !== v) { tg[k] = v; if (k === 'tr') tg.el.style.transform = v; else if (k === 'op') tg.el.style.opacity = v; else if (k === 'vis') tg.el.style.visibility = v; else tg.el.classList.toggle('is-target', v); } };
+  function updateTags() {
+    const on = showWorld();
+    for (const [id, tg] of tags) {
+      const sp = world.spots.get(id), v = world.npcs.get(id);
+      if (v) tmp.set(v.group.position.x, v.group.position.y + 2.12 * (v.group.children[0].scale.y || 1), v.group.position.z);
+      else tmp.copy(sp.anchor);
+      const dd = Math.hypot(tmp.x - explorer.pos.x, tmp.z - explorer.pos.y);
+      const isT = id === ob.spot;
+      tmp.project(view.camera);
+      const vis = on && tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.15 && (dd < 34 || isT) && !(v && dd < 1.0);
+      setStyle(tg, 'vis', vis ? 'visible' : 'hidden');
+      if (!vis) continue;
+      const x = (tmp.x + 1) / 2 * innerWidth, y = (1 - tmp.y) / 2 * innerHeight;
+      setStyle(tg, 'tr', `translate3d(${x.toFixed(0)}px, ${y.toFixed(0)}px, 0) translate(-50%, -100%)`);
+      setStyle(tg, 'isT', isT);
+      setStyle(tg, 'op', isT ? '1' : (Math.max(0.4, Math.min(1, (34 - dd) / 10))).toFixed(2));
+    }
+    if (on && ob.target && guide.next) {
+      const p = explorer.pos, f = view.forward();
+      const dx = guide.next.x - p.x, dz = guide.next.y - p.y;
+      const ang = Math.atan2(f.x * dz - f.y * dx, f.x * dx + f.y * dz);
+      obArrow.style.transform = `rotate(${ang.toFixed(2)}rad)`;
+      obArrow.hidden = Math.hypot(dx, dz) < 0.6;
+    } else obArrow.hidden = true;
+  }
+
+  /* ---------- 導航：自選目的地 ---------- */
+  function setNav(id) {
+    if (!onIsland) enterIsland();
+    navTarget = state.isDone(id) || ORDER.find((x) => !state.isDone(x)) !== id ? id : null;
+    obT = 1; renderObjective(0);
+    toast(`目的地：${labelOf(spotOf(id))}`);
   }
 
   /* ---------- AI 導覽抽屜 ---------- */
@@ -312,9 +395,14 @@ function boot() {
   $('ai-fab').addEventListener('click', () => (drawer.hidden ? openDrawer() : closeDrawer()));
 
   /* ---------- 內容面板 ---------- */
+  /** 面板底部的「下一步」按鈕文字 */
+  const nextLabel = () => {
+    const o = objective();
+    return o.kind === 'free' ? '' : o.title;
+  };
   const card = new Card($('card'), {
     onClose: () => closeCard(),
-    onNext: null,
+    onNext: () => { closeCard(); const o = objective(); if (o.target) toast(`下一步：${o.title}`); },
     ctx: {
       complete: (id) => {
         const was = state.isDone(id);
@@ -325,9 +413,10 @@ function boot() {
           const lv = LEVELS.filter((l) => l.spots.every((x) => state.isDone(x)));
           if (lv.length > before) setTimeout(() => levelUp(lv.find((l) => l.spots.includes(id)) || lv.at(-1)), 900);
           world.bloom(id); const z = zoneOf(id), p = state.zoneProgress(z.id); toast(p.done >= p.total ? `✦ 完成「${z.name}」` : '✦ 島上又亮了一角');
-          const next = ORDER.find((x) => !state.isDone(x));
-          if (next) { navTarget = next; renderLists(); hint(`下一站：${labelOf(SPOTS.find((x) => x.id === next))}。關掉面板後，跟著金色箭頭走。`); }
+          if (navTarget === id) navTarget = null;
         }
+        card.setNext(nextLabel());
+        obT = 1;
       },
       isDone: (id) => state.isDone(id),
       openChat: (q, mode) => openDrawer(q, mode),
@@ -348,18 +437,20 @@ function boot() {
     if (navTarget === id) navTarget = null;
     hint(''); prompt(null);
     if (!drawer.hidden && s.exp === 'lecture') closeDrawer();
-    faceSpot(s);
     card.show(s, null);
+    if (state.isDone(id)) card.setNext(nextLabel());
     renderLists();
     reframe();
   }
   function closeCard() {
-    card.hide(); here = null; voice.stop();
+    card.hide(); here = null;
     // 帶路任務結束後，島民回到自己的亭子
     for (const t of TASKS) if (t.quest?.type === 'escort' && state.get().tasks[t.id]?.quest === 'done') {
       const v = world.npcs.get(SPOTS.find((s) => s.task === t.id).id);
       if (v && v.home) { v.group.position.set(v.home.x, heightAt(v.home.x, v.home.y), v.home.y); v.group.rotation.y = v.face; }
     }
+    obT = 1;
+    canvas.focus?.();
     reframe();
   }
 
@@ -368,11 +459,11 @@ function boot() {
   function prompt(id) {
     if (id === nearId) return;
     nearId = id;
-    world.rings.forEach((r, k) => { r.hot = k === id; });
     if (!id) { promptEl.hidden = true; return; }
-    const s = SPOTS.find((x) => x.id === id), t = taskOf(id);
+    const s = spotOf(id), t = taskOf(id);
     promptEl.hidden = false;
     promptEl.innerHTML = `<kbd>${touch ? '點這裡' : 'Enter'}</kbd><span>${t ? `和 <b>${esc(t.npc.name)}</b> 說話` : s.npc ? `和 <b>${esc(s.npc.name)}</b> 說話` : `進入 <b>${esc(s.place)}</b>`}</span>`;
+    obT = 1;
   }
   promptEl.addEventListener('click', () => { if (nearId) openSpot(nearId); });
   function nearestStation() {
@@ -382,13 +473,18 @@ function boot() {
       const d = Math.hypot(s.front[0] - p.x, s.front[1] - p.y);
       if (d < bd) { bd = d; best = s.id; }
     }
+    // 帶路途中，敏娜不會在講堂前「被搭話」
+    const q = activeQuest();
+    if (q?.task.quest.type === 'escort' && best === q.spot.id) return null;
     return best;
   }
 
   /* ---------- 鍵盤與觸控搖桿 ---------- */
   const MOVE = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1], KeyA: [-1, 0], ArrowLeft: [-1, 0], KeyD: [1, 0], ArrowRight: [1, 0] };
   const typing = (e) => /INPUT|TEXTAREA|SELECT/.test(e.target?.tagName || '') || e.target?.isContentEditable;
+  const intro = $('intro');
   addEventListener('keydown', (e) => {
+    if (!intro.hidden) { if (e.key === 'Enter' || e.key === 'Escape' || e.code === 'Space') { e.preventDefault(); closeIntro(); } return; }
     if (e.key === 'Escape') {
       if (!$('modal').hidden) closeModal();
       else if (!drawer.hidden) closeDrawer();
@@ -430,12 +526,9 @@ function boot() {
   /* ---------- 鏡頭 ---------- */
   function reframe() {
     view.setOverview(!onIsland);
+    world.shadowWide(!onIsland);
     const panel = card.open ? $('card') : !drawer.hidden ? drawer : null;
     view.offsetXT = panel && !narrow() && onIsland ? panel.getBoundingClientRect().width / 2 : 0;
-  }
-  /** 打開站點時，鏡頭轉到旅人身後、面向島民與建築 */
-  function faceSpot(s) {
-    // 依使用者回饋：對話時鏡頭維持原本的距離與角度，不自動拉近
   }
   {
     const pts = new Map(); let pinch0 = 0, dist0 = 9;
@@ -454,7 +547,22 @@ function boot() {
     canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
   }
 
-  /* ---------- 首頁、指南、關於、語音開關 ---------- */
+  /* ---------- 首頁、新手說明、指南、關於 ---------- */
+  function openIntro() {
+    intro.hidden = false;
+    keys.clear(); joy.set(0, 0);
+    requestAnimationFrame(() => intro.classList.add('is-in'));
+    intro.querySelector('.intro-go').focus({ preventScroll: true });
+  }
+  function closeIntro() {
+    intro.hidden = true; intro.classList.remove('is-in');
+    try { localStorage.setItem(INTRO_KEY, '1'); } catch { /* 無痕模式 */ }
+    canvas.focus?.();
+    obT = 1;
+    hint(touch ? '用左下角的搖桿走路，跟著地上的金色箭頭走。' : '用 W A S D 或方向鍵走路，跟著地上的金色箭頭走。', 7000);
+  }
+  intro.querySelector('.intro-go').addEventListener('click', closeIntro);
+  $('help-btn').addEventListener('click', openIntro);
   function enterIsland() {
     if (onIsland) return;
     onIsland = true;
@@ -462,11 +570,10 @@ function boot() {
     setTimeout(() => { $('home').hidden = true; }, 600);
     document.body.classList.add('on-island');
     canvas.focus?.();
-    if (!state.isDone('origin')) {
-      navTarget = 'origin';
-      hint(touch ? '用左下角的搖桿走路。先到山門旁的源頭碑，找導覽員小蓮。' : '用 WASD 或方向鍵走路，拖曳畫面或按 Q／E 轉視角。先到山門旁的源頭碑，找導覽員小蓮。');
-      voice.say('歡迎來到三好四給之島。用方向鍵走路，先到山門旁的源頭碑，找導覽員小蓮吧。', 'guide');
-    } else hint('歡迎回來！左側的善念地圖可以設定導航目的地。');
+    let seen = false; try { seen = localStorage.getItem(INTRO_KEY) === '1'; } catch { /* 無痕模式 */ }
+    if (!seen && !/[?&]nointro\b/.test(location.search)) openIntro();
+    else hint(state.isDone('origin') ? '歡迎回來！看畫面上方的「目前目標」，跟著地上的金色箭頭走。' : '跟著地上的金色箭頭，先去找導覽員小蓮。', 6000);
+    obT = 1;
     renderLists();
     reframe();
   }
@@ -476,7 +583,7 @@ function boot() {
     document.body.classList.remove('on-island');
     $('home').hidden = false;
     requestAnimationFrame(() => $('home').classList.remove('is-out'));
-    hint(''); prompt(null); voice.stop();
+    hint(''); prompt(null);
     reframe();
   }
   const modal = $('modal');
@@ -486,7 +593,7 @@ function boot() {
     modal.querySelector('.modal-close').focus();
     modal.querySelector('[data-reset]')?.addEventListener('click', (e) => {
       const b = e.currentTarget;
-      if (b.dataset.armed) { state.reset(); location.reload(); return; }
+      if (b.dataset.armed) { state.reset(); try { localStorage.removeItem(INTRO_KEY); } catch { /* */ } location.reload(); return; }
       b.dataset.armed = '1'; b.textContent = '再按一次確認清除（無法復原）';
     });
   }
@@ -505,10 +612,7 @@ function boot() {
 
   /* ---------- 尺寸 ---------- */
   function resize() {
-    const w = innerWidth, h = innerHeight;
-    renderer.setSize(w, h, false);
-    composer.setSize(w, h);
-    bloom.resolution.set(w / 2, h / 2);
+    renderer.setSize(innerWidth, innerHeight, false);
     reframe();
   }
   addEventListener('resize', resize);
@@ -521,12 +625,13 @@ function boot() {
 
   /* ---------- 迴圈 ---------- */
   const clock = new THREE.Clock();
-  let t = 0, timeScale = 1;
-  const tmp = new THREE.Vector3(), mv = new THREE.Vector2();
+  let t = 0, timeScale = 1, fpsAcc = 0, fpsN = 0;
+  const mv = new THREE.Vector2();
   renderer.setAnimationLoop(() => {
-    const dt = Math.min(clock.getDelta(), 0.05) * timeScale;
+    const raw = clock.getDelta();
+    const dt = Math.min(raw, 0.05) * timeScale;
     t += dt;
-    if (onIsland && !card.open && modal.hidden) {
+    if (onIsland && !card.open && modal.hidden && intro.hidden) {
       mv.set(0, 0);
       for (const k of keys) if (MOVE[k]) { mv.x += MOVE[k][0]; mv.y += MOVE[k][1]; }
       mv.add(joy);
@@ -539,37 +644,37 @@ function boot() {
         const speed = (running || keys.has('Shift') ? 10.5 : 6.6) * len;
         explorer.stride = running || keys.has('Shift') ? 17 : 12.5;
         explorer.drive(dx, dz, speed * dt, dt, (x, z) => world.walkable(x, z));
-        if ($('hint').classList.contains('is-on') && !navTarget) hint('');
       }
       questTick(dt);
       prompt(nearestStation());
+      // 自選的目的地到了
+      if (navTarget) { const s = world.spots.get(navTarget); if (Math.hypot(s.front[0] - explorer.pos.x, s.front[1] - explorer.pos.y) <= TALK_R) { navTarget = null; obT = 1; } }
     }
     view.follow(explorer.pos.x, explorer.object.position.y, explorer.pos.y);
-    world.follow(explorer.pos.x, explorer.pos.y);
+    const fw = view.forward();
+    world.follow(explorer.pos.x, explorer.pos.y, fw.x, fw.y);
     explorer.update(dt);
-    // 導航箭頭
-    const np = onIsland && !card.open ? navPoint() : null;
-    if (np) {
-      const p = explorer.pos, d = Math.hypot(np.x - p.x, np.y - p.y);
-      arrow.visible = d > 2.6;
-      arrow.position.set(p.x, explorer.object.position.y + 3.6 + Math.sin(t * 3) * 0.08, p.y);
-      arrow.rotation.y = Math.atan2(np.x - p.x, np.y - p.y);
-      if (navTarget && d <= TALK_R && !activeQuest()) { navTarget = null; renderLists(); hint(''); }
-    } else arrow.visible = false;
-    // 島嶼光明度
+    for (const v of world.npcs.values()) v.watch(explorer.pos.x, explorer.pos.y);
+    if (onIsland) renderObjective(dt);
+    // 島嶼光明度：善念越多，畫面越明亮
     glowNow += (brightness() - glowNow) * Math.min(1, dt * 1.5);
-    grade.uniforms.uSat.value = 0.92 + 0.14 * glowNow;
-    grade.uniforms.uLift.value = 1.0 + 0.04 * glowNow;
+    renderer.toneMappingExposure = 0.95 + 0.1 * glowNow;
     world.update(t, dt);
+    updateGuide();
+    guide.update(dt, explorer.pos, ground);
     view.update(dt, innerWidth, innerHeight);
-    world.scene.fog.near = onIsland ? 80 : 180; world.scene.fog.far = onIsland ? 560 : 800;
-    composer.render();
-    for (const [id, p] of pins) {
-      tmp.copy(world.spots.get(id).anchor).project(view.camera);
-      const x = (tmp.x + 1) / 2 * innerWidth, y = (1 - tmp.y) / 2 * innerHeight - 10;
-      p.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
-      const sp = world.spots.get(id), dd = Math.hypot(sp.front[0] - explorer.pos.x, sp.front[1] - explorer.pos.y);
-      p.style.visibility = tmp.z < 1 && onIsland && !card.open && (dd < 55 || id === navTarget) && dd > 3 ? 'visible' : 'hidden';
+    renderer.render(world.scene, view.camera);
+    updateTags();
+    // 依實際幀率調整解析度（低於 40 fps 降低、穩定 58 fps 以上再慢慢升回）
+    fpsAcc += raw; fpsN++;
+    if (fpsAcc > 2) {
+      const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
+      if (!fixedRes && !document.hidden) {
+        let next = prNow;
+        if (fps < 40 && prNow > 0.75) next = Math.max(0.75, prNow - 0.2);
+        else if (fps > 58 && prNow < prMax) next = Math.min(prMax, prNow + 0.1);
+        if (next !== prNow) { prNow = next; renderer.setPixelRatio(prNow); resize(); }
+      }
     }
   });
 
@@ -578,8 +683,8 @@ function boot() {
 
   // 自動化測試用（不影響使用者）
   window.__isle = {
-    world, explorer, card, view, state, renderer, enterIsland, openDrawer, openSpot, startQuest, setNav,
-    keys, get near() { return nearId; },
+    world, explorer, card, view, state, renderer, guide, enterIsland, openDrawer, openSpot, startQuest, setNav, closeIntro,
+    keys, buildMs, get near() { return nearId; }, get objective() { return objective(); }, get pixelRatio() { return prNow; },
     teleport(x, z) { explorer.place(x, z); },
     set timeScale(v) { timeScale = v; },
   };

@@ -38,11 +38,9 @@ export class Card {
       </div>
       <footer class="c-foot">
         <button type="button" class="btn btn-quiet c-done">回到島上（Esc）</button>
-        ${next ? `<button type="button" class="btn btn-primary c-next">下一處：${esc(next.place)}</button>` : ''}
       </footer>`;
     this.el.querySelector('.c-close').addEventListener('click', () => this.onClose());
     this.el.querySelector('.c-done').addEventListener('click', () => this.onClose());
-    this.el.querySelector('.c-next')?.addEventListener('click', () => this.onNext(next));
     const exp = EXPS[spot.exp];
     if (exp) this.cleanup = exp.mount(this.el.querySelector('.c-exp'), spot, this.ctx) || null;
     this.el.hidden = false;
@@ -51,6 +49,20 @@ export class Card {
     requestAnimationFrame(() => this.el.classList.add('is-in'));
     this.el.querySelector('.c-scroll').scrollTop = 0;
     this.el.querySelector('.c-close').focus({ preventScroll: true });
+  }
+
+  /** 完成這一站後，面板底部出現「下一步：……」按鈕（按下就關掉面板，跟著箭頭去下一站） */
+  setNext(label) {
+    const foot = this.el.querySelector('.c-foot'); if (!foot) return;
+    let b = foot.querySelector('.c-next');
+    if (!label) { b?.remove(); return; }
+    if (!b) {
+      b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-primary c-next';
+      b.addEventListener('click', () => this.onNext?.());
+      foot.appendChild(b);
+    }
+    b.innerHTML = `<span>下一步：${esc(label)}</span><span aria-hidden="true">→</span>`;
+    b.classList.remove('is-pop'); void b.offsetWidth; b.classList.add('is-pop');
   }
 
   hide() {

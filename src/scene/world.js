@@ -1,15 +1,21 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createTerrain, heightAt, hillAt, islandD, islandR, PEAK, PONDS, pondAt, streamAt } from './terrain.js';
-import { createSky, createMist, cloudTexture } from './sky.js';
+import { createTerrain, shadeGround, heightAt, hillAt, islandD, islandR, PEAK, PONDS, pondAt, streamAt, STAIR } from './terrain.js';
+import { createSky, createMist } from './sky.js';
 import { createWater } from './water.js';
-import { BUILD, paifang, dock, pagoda, archBridge, pine, roundTree, plum, bamboo, shrub, scholarRock, boulder, tuft, lotus, lantern, mat, glow, glowMaterial, flowerBed, woodBridge } from './props.js';
+import { BUILD, paifang, dock, pagoda, archBridge, scholarRock, boulder, lotus, lantern, woodBridge } from './props.js';
+import { broadleaf, maple, pine, bamboo, shrub, grassField, GM, WIND } from './foliage.js';
 import { PathGraph } from './paths.js';
+import { TEX } from './textures.js';
 import { TASKS } from '../data/tasks.js';
 import { GATE, GARDEN, S } from '../data/spots.js';
 import { villager, ringMarker, questItem } from './npc.js';
 
-export const SUN_DIR = new THREE.Vector3(30, 38, 24).normalize();
+/** 陽光從東南方斜照（約 37 度仰角） */
+export const SUN_DIR = new THREE.Vector3(36, 30, 22).normalize();
+/** 天邊的薄霧色（輸出色彩空間），與天空地平線、遠山一致 */
+export const HAZE = '#cfd8dc';
+const SHADOW_HALF = 30, SHADOW_MAP = 2048;
 
 function rng(seed) {
   return () => {
@@ -20,7 +26,10 @@ function rng(seed) {
   };
 }
 
-/** 把靜態群組依材質合併成少數幾個網格；發光精靈另外保留（會閃爍） */
+/**
+ * 把靜態群組依「材質＋是否投影」合併成少數幾個網格（大幅減少繪製呼叫）。
+ * 有頂點色的材質保留顏色屬性；發光精靈另外保留。
+ */
 function bake(group, scene, sprites) {
   group.updateMatrixWorld(true);
   const buckets = new Map();
@@ -37,14 +46,16 @@ function bake(group, scene, sprites) {
     if (!o.isMesh) return;
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
     g.applyMatrix4(o.matrixWorld);
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
+    const keepColor = !!o.material.vertexColors;
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && !(keepColor && k === 'color')) g.deleteAttribute(k);
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     if (!g.attributes.normal) g.computeVertexNormals();
-    if (!buckets.has(o.material)) buckets.set(o.material, { geos: [], cast: false });
-    const b = buckets.get(o.material);
-    b.geos.push(g); b.cast ||= o.castShadow;
+    if (keepColor && !g.attributes.color) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3));
+    const key = o.material.uuid + (o.castShadow ? '|c' : '|n');
+    if (!buckets.has(key)) buckets.set(key, { m: o.material, geos: [], cast: o.castShadow });
+    buckets.get(key).geos.push(g);
   });
-  for (const [m, { geos, cast }] of buckets) {
+  for (const { m, geos, cast } of buckets.values()) {
     const merged = mergeGeometries(geos, false);
     geos.forEach((x) => x.dispose());
     if (!merged) continue;
@@ -67,44 +78,57 @@ export class World {
     this.npcs = new Map();
     this.rings = new Map();
     this.items = new Map(); // taskId -> questItem[]
+    this.canopy = [];
+    this.lowPower = lowPower;
     const scene = this.scene;
 
-    /* ---- 光與大氣：清晨的柔光與山間薄霧 ---- */
-    scene.fog = new THREE.Fog('#d9e4ea', 90, 560);
+    /* ---- 光與大氣：晴朗的上午，帶一點湖面的水氣 ---- */
+    scene.fog = new THREE.Fog(HAZE, 90, 540);
     const sky = createSky(SUN_DIR);
     scene.add(sky.mesh); this.animated.push(sky.update);
-    scene.add(new THREE.HemisphereLight('#e0ecff', '#8f8a62', 1.55));
-    const sun = new THREE.DirectionalLight('#fff3dc', 2.9);
-    sun.position.copy(SUN_DIR).multiplyScalar(60);
+    this.hemi = new THREE.HemisphereLight('#dbe7f3', '#71704c', 1.35);
+    scene.add(this.hemi);
+    const sun = new THREE.DirectionalLight('#fff2df', 2.9);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(lowPower ? 2048 : 4096, lowPower ? 2048 : 4096);
-    Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 32, bottom: -32, near: 10, far: 200 });
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.04;
+    const ms = lowPower ? 1024 : SHADOW_MAP;
+    sun.shadow.mapSize.set(ms, ms);
+    Object.assign(sun.shadow.camera, { left: -SHADOW_HALF, right: SHADOW_HALF, top: SHADOW_HALF, bottom: -SHADOW_HALF, near: 20, far: 170 });
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.035;
     scene.add(sun, sun.target);
     this.sun = sun;
-    const fill = new THREE.DirectionalLight('#ffe0bc', 0.45);
-    fill.position.set(-30, 18, -10);
-    scene.add(fill);
+    this.shadowTexel = (SHADOW_HALF * 2) / ms;
 
     const water = createWater(SUN_DIR);
     scene.add(water.mesh); this.animated.push(water.update);
-    scene.add(createTerrain());
 
-    /* ---- 步道 ---- */
+    /* ---- 步道（先建，地形要依步道畫出路旁被踩過的草地） ---- */
     this.graph = new PathGraph(spots);
+    this.edge = this.graph.edgeField();
+    this.terrain = createTerrain(this.edge);
+    scene.add(this.terrain);
     scene.add(this.graph.buildMesh());
 
     /* ---- 地點建築 ---- */
     const statics = new THREE.Group();
+    const contact = [];
     for (const s of spots) {
       const [x, z] = s.at;
       const y = heightAt(x, z);
       const b = new THREE.Group();
       const task = TASKS.find((t) => t.id === s.task);
       BUILD[s.kind](b, { color: task?.color || s.npc?.color });
-      const local = new THREE.Box3().setFromObject(b);
-      if (s.kind === 'house' || s.kind === 'pavilion' || s.kind === 'stele') b.scale.setScalar(1.22);
+      // 碰撞範圍只算「會撞到的部分」（台基、牆、柱），不含伸出去的屋簷
+      const local = new THREE.Box3(), part = new THREE.Box3();
+      b.updateMatrixWorld(true);
+      b.traverse((o) => {
+        if (!o.isMesh) return;
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        part.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+        if (part.min.y < 1.3) local.union(part);
+      });
+      const k = s.kind === 'house' || s.kind === 'pavilion' || s.kind === 'stele' ? 1.22 : 1;
+      b.scale.setScalar(k);
       b.position.set(x, y - 0.04, z);
       b.rotation.y = s.rot || 0;
       statics.add(b);
@@ -113,6 +137,8 @@ export class World {
       const inv = b.matrixWorld.clone().invert();
       if (s.kind === 'terrace') this.circles.push([x + Math.sin(s.rot || 0) * -1.3, z + Math.cos(s.rot || 0) * -1.3, 1.3]);
       else this.boxes.push({ inv, box: local.clone().expandByScalar(0.12) });
+      const sz = local.getSize(new THREE.Vector3()).multiplyScalar(k), c = local.getCenter(new THREE.Vector3()).multiplyScalar(k).applyAxisAngle(new THREE.Vector3(0, 1, 0), s.rot || 0);
+      contact.push([x + c.x, y, z + c.z, sz.x * 1.25 + 1, sz.z * 1.25 + 1, s.rot || 0]);
       this.spots.set(s.id, {
         ...s,
         pos: new THREE.Vector3(x, y, z),
@@ -130,6 +156,7 @@ export class World {
 
     /* ---- 山門與渡口 ---- */
     const pf = new THREE.Group(); paifang(pf); pf.position.set(GATE.at[0], heightAt(...GATE.at) - 0.02, GATE.at[1]); statics.add(pf);
+    contact.push([GATE.at[0], heightAt(...GATE.at), GATE.at[1], 7.5, 2.2, 0]);
     const dk = new THREE.Group(); dock(dk, 4.4); dk.position.set(GATE.dock[0], 0, GATE.dock[1] + 1.6); statics.add(dk);
     this.reserved.push([GATE.at[0], GATE.at[1], 3.4], [GATE.dock[0], GATE.dock[1], 3]);
     for (const px of [-2.6, -0.95, 0.95, 2.6]) this.circles.push([GATE.at[0] + px, GATE.at[1], 0.32]);
@@ -139,10 +166,11 @@ export class World {
     const px = -14 * S, pz = -21 * S;
     this.pagodaTop = pagoda(pg, 1.1);
     pg.position.set(px, heightAt(px, pz) - 0.1, pz); statics.add(pg);
+    contact.push([px, heightAt(px, pz), pz, 5.5, 5.5, 0]);
     this.reserved.push([px, pz, 3.2]);
     this.circles.push([px, pz, 1.9]);
 
-    /* ---- 放生池上的拱橋 ---- */
+    /* ---- 放生池上的石拱橋 ---- */
     const pond2 = PONDS[1];
     const br = new THREE.Group(); archBridge(br, 7.4, 1.4); br.position.set(pond2.x, -0.05, pond2.z); br.rotation.y = 0.5; statics.add(br);
     this.reserved.push([pond2.x, pond2.z, 5]);
@@ -155,86 +183,50 @@ export class World {
       this.reserved.push([b.x, b.z, b.len / 2 + 1]);
     }
 
-    /* ---- 善念實踐園：池邊的太湖石與石燈 ---- */
+    /* ---- 四給街：池邊的太湖石與石燈 ---- */
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + 0.3, r = GARDEN.ring + 0.9;
       const x = GARDEN.x + Math.cos(a) * (GARDEN.pond + 0.55), z = GARDEN.z + Math.sin(a) * (GARDEN.pond + 0.55);
-      if (i % 2) { scholarRock(statics, x, heightAt(x, z), z, 0.7, i + 3); this.circles.push([x, z, 0.45]); }
-      else lantern(statics, GARDEN.x + Math.cos(a) * r, heightAt(GARDEN.x + Math.cos(a) * r, GARDEN.z + Math.sin(a) * r), GARDEN.z + Math.sin(a) * r, 0.75, i === 0);
+      if (i % 2) { scholarRock(statics, x, heightAt(x, z), z, 0.8, i + 3); this.circles.push([x, z, 0.45]); }
+      else lantern(statics, GARDEN.x + Math.cos(a) * r, heightAt(GARDEN.x + Math.cos(a) * r, GARDEN.z + Math.sin(a) * r), GARDEN.z + Math.sin(a) * r, 0.75, true);
     }
 
-    this.#aiOrb();
+    /* ---- 登頂石階：保留範圍，底端兩盞石燈 ---- */
+    for (let z = STAIR.z1; z <= STAIR.z0 + 1; z += 1.2) this.reserved.push([STAIR.x, z, STAIR.hw + 1.6]);
+    for (const sx of [-1, 1]) { const lx = STAIR.x + sx * (STAIR.hw + 0.9), lz = STAIR.z0 + 0.9; lantern(statics, lx, heightAt(lx, lz), lz, 1.1, true); this.circles.push([lx, lz, 0.32]); }
+
     this.#people(spots);
     this.#scatter(statics, spots);
     bake(statics, scene, this.sprites);
+    this.#contactShadows(contact);
+    shadeGround(this.terrain, this.canopy);
+    this.#grass();
     this.#lotusPads();
     this.#birds();
 
-    /* ---- 遠處的雲與山腰薄霧 ---- */
+    /* ---- 遠處的雲 ---- */
     const mist = createMist([
-      [-70, 22, -120, 70, '#ffffff', 0.5], [50, 26, -140, 80, '#ffffff', 0.45], [-130, 20, -50, 60, '#fff6e6', 0.45],
-      [110, 24, -60, 70, '#ffffff', 0.45], [0, 30, -170, 90, '#fffaf0', 0.4],
+      [-90, 40, -260, 120, '#ffffff', 0.35], [110, 46, -280, 140, '#ffffff', 0.3], [-260, 36, -60, 110, '#ffffff', 0.3],
     ]);
     scene.add(mist.group); this.animated.push(mist.update);
-    this.#lowMist();
     this.#farHills();
-    this.#petals();
 
     this.peakTop = new THREE.Vector3(PEAK.x, heightAt(PEAK.x, PEAK.z), PEAK.z);
     this.islandPoints = this.#islandOutline();
   }
 
-  /** AI 智慧講堂前方的光環：一顆柔光的球與兩道緩緩轉動的環 */
-  #aiOrb() {
-    const s = this.spots.get('lecture');
-    if (!s) return;
-    const g = new THREE.Group();
-    const fx = s.at[0] + Math.sin(s.rot) * 3.4 + Math.cos(s.rot) * 2.6, fz = s.at[1] + Math.cos(s.rot) * 3.4 - Math.sin(s.rot) * 2.6;
-    this.circles.push([fx, fz, 0.55]);
-    g.position.set(fx, heightAt(fx, fz) + 2.3, fz);
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 3), mat('#e8f0ff', { e: '#9fb8ff', ei: 1.6, r: 0.3 }));
-    g.add(core);
-    const ringM = mat('#c9a24c', { r: 0.35, m: 0.6, e: '#5a4210', ei: 0.4 });
-    const r1 = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.025, 8, 64), ringM);
-    const r2 = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.018, 8, 64), ringM);
-    g.add(r1, r2);
-    const halo = new THREE.SpriteMaterial({ map: (glowTexFor('#bcd0ff')), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0.55 });
-    const sp = new THREE.Sprite(halo); sp.scale.setScalar(2.4); g.add(sp);
-    // 石座
-    const base = new THREE.Group();
-    const y0 = heightAt(fx, fz);
-    const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 0.9, 12), mat('#cfc7b4', { r: 0.95 }));
-    ped.position.set(fx, y0 + 0.45, fz); ped.castShadow = true; ped.receiveShadow = true; base.add(ped);
-    this.scene.add(base, g);
-    this.reserved.push([fx, fz, 1.6]);
-    this.animated.push((t) => {
-      g.position.y = y0 + 2.3 + Math.sin(t * 1.2) * 0.12;
-      r1.rotation.set(t * 0.6, t * 0.4, 0);
-      r2.rotation.set(-t * 0.3, 0, t * 0.5);
-      core.scale.setScalar(1 + Math.sin(t * 2.2) * 0.04);
-    });
-    this.orb = g;
-  }
-
   #scatter(g, spots) {
     const rand = rng(1927);
-    const edges = this.graph.edges.map(([a, b]) => [this.graph.nodes[a], this.graph.nodes[b]]);
-    const pathDist = (x, z) => {
-      let best = Infinity;
-      for (const [a, b] of edges) {
-        const abx = b.x - a.x, abz = b.y - a.y, t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.y) * abz) / (abx * abx + abz * abz)));
-        best = Math.min(best, Math.hypot(x - a.x - abx * t, z - a.y - abz * t));
-      }
-      return best;
-    };
+    const edge = this.edge;
     const blocked = spots.map((s) => [s.at[0], s.at[1], Math.min(s.r || 3.2, 3) + 0.6]);
     const boxes = [...this.spots.values()].map((s) => s.bounds.clone().expandByScalar(0.9));
-    const inBox = (x, z) => boxes.some((b) => x > b.min.x && x < b.max.x && z > b.min.z && z < b.max.z);
+    this.inBox = (x, z, pad = 0) => boxes.some((b) => x > b.min.x - pad && x < b.max.x + pad && z > b.min.z - pad && z < b.max.z + pad);
     const ponds = PONDS.map((p) => [p.x, p.z, p.s * 1.25]);
-    const free = (x, z, gap) => pathDist(x, z) > gap + 0.7
-      && !blocked.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r) && !inBox(x, z)
+    const free = (x, z, gap) => edge(x, z) > gap
+      && !blocked.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r) && !this.inBox(x, z)
       && !ponds.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r)
       && !this.reserved.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r);
+    const apart = (x, z, d) => !this.circles.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < d);
     const inland = (x, z, lim = 0.86) => islandD(x, z) < lim;
     const place = (n, tries, pick, ok, make) => {
       for (let i = 0, k = 0; i < tries && k < n; i++) {
@@ -244,52 +236,91 @@ export class World {
       }
     };
     const anywhere = (lo = 0.15, hi = 0.88) => () => { const a = rand() * Math.PI * 2, r = islandR(a) * (lo + rand() * (hi - lo)); return [Math.cos(a) * r, Math.sin(a) * r]; };
-
-    const pathPts = [];
-    edges.forEach(([a, b]) => { const n = Math.ceil(a.distanceTo(b) / 3); for (let i = 0; i <= n; i++) pathPts.push(new THREE.Vector2().lerpVectors(a, b, i / n)); });
-    const nearPath = (lo, hi) => () => { const p = pathPts[Math.floor(rand() * pathPts.length)], a = rand() * Math.PI * 2, r = lo + rand() * (hi - lo); return [p.x + Math.cos(a) * r, p.y + Math.sin(a) * r]; };
     const dry = (x, z) => streamAt(x, z) < 0.01 && pondAt(x, z) < 0.25;
-    const tree = (r) => (x, y, z) => this.circles.push([x, z, r]);
 
-    // 松林：山巒、北側與島的外圈
-    place(48, 30000, anywhere(0.2, 0.88), (x, z) => (hillAt(x, z) > 1.6 || z < -14 * S || Math.hypot(x, z) > 25 * S) && inland(x, z) && free(x, z, 4.2) && dry(x, z),
-      (x, y, z, i) => { pine(g, x, y - 0.05, z, 1.1 + rand() * 0.9, i + 1); this.circles.push([x, z, 0.45]); });
-    // 闊葉林：滿島的樹，東北與西南帶一點秋色
-    place(46, 30000, anywhere(0.12, 0.86), (x, z) => inland(x, z) && free(x, z, 4.5) && hillAt(x, z) < 4 && dry(x, z),
-      (x, y, z, i) => { this.circles.push([x, z, 0.35]); roundTree(g, x, y - 0.05, z, 1.0 + rand() * 0.7, i + 7, (x > 14 * S && z < -6 * S) || (x < -14 * S && z > 8 * S) ? rand() > 0.35 : rand() > 0.9); });
-    // 竹林：三好村後方、講堂旁、溪邊
-    place(9, 9000, () => [rand() > 0.5 ? -24 * S + rand() * 8 * S : 8 * S + rand() * 9 * S, rand() > 0.5 ? -6 * S + rand() * 16 * S : 17 * S + rand() * 7 * S], (x, z) => inland(x, z, 0.88) && free(x, z, 1.4) && dry(x, z),
-      (x, y, z, i) => { bamboo(g, x, y, z, 1.1 + rand() * 0.4, i + 11); this.circles.push([x, z, 0.45]); });
-    // 梅與櫻：四給街外圈、山門參道、願行台的登山路
-    place(8, 9000, () => { const a = rand() * Math.PI * 2, r = GARDEN.r + 3.5 + rand() * 5; return [GARDEN.x + Math.cos(a) * r, GARDEN.z + Math.sin(a) * r]; }, (x, z) => inland(x, z) && free(x, z, 1.2) && dry(x, z),
-      (x, y, z, i) => { plum(g, x, y, z, 1.2 + rand() * 0.4, i + 21); this.circles.push([x, z, 0.3]); });
-    place(8, 9000, nearPath(4, 6.5), (x, z) => inland(x, z) && free(x, z, 1.6) && dry(x, z) && (z > 10 * S || Math.hypot(x, z + 4 * S) < 13 * S),
-      (x, y, z, i) => { plum(g, x, y, z, 1.1 + rand() * 0.4, i + 51); this.circles.push([x, z, 0.3]); });
-    // 花圃：沿著步道兩旁
-    place(120, 20000, nearPath(1.9, 3.6), (x, z) => inland(x, z) && free(x, z, 0.6) && dry(x, z),
-      (x, y, z, i) => flowerBed(g, x, y, z, 0.9 + rand() * 0.6, i + 5));
-    // 灌叢、山石與草叢
-    place(70, 20000, anywhere(0.1, 0.9), (x, z) => inland(x, z, 0.92) && free(x, z, 0.7) && dry(x, z),
-      (x, y, z, i) => shrub(g, x, y, z, 0.7 + rand() * 0.7, i));
-    place(18, 9000, anywhere(0.15, 0.86), (x, z) => (hillAt(x, z) > 1.0 || streamAt(x + 2.6, z) > 0 || streamAt(x - 2.6, z) > 0) && inland(x, z) && free(x, z, 0.8) && dry(x, z),
-      (x, y, z, i) => { const r = 0.3 + rand() * 0.6; boulder(g, x, y + 0.05, z, r, i + 3); this.circles.push([x, z, r * 1.1]); });
-    place(1200, 40000, anywhere(0.08, 0.88), (x, z) => inland(x, z, 0.9) && free(x, z, 0.4) && hillAt(x, z) < 6 && dry(x, z),
-      (x, y, z, i) => tuft(g, x, y - 0.02, z, 0.8 + rand() * 0.8, i + 3));
-    // 步道旁的石燈籠（每隔一段路一盞）
+    // 黑松：山巒、北側與島的外圈
+    place(30, 30000, anywhere(0.2, 0.88), (x, z) => (hillAt(x, z) > 1.6 || z < -14 * S || Math.hypot(x, z) > 25 * S) && inland(x, z) && free(x, z, 2.4) && dry(x, z) && apart(x, z, 3.4),
+      (x, y, z, i) => { const t = pine(g, x, y, z, 0.95 + rand() * 0.45, i + 1); this.circles.push(t.trunk); this.canopy.push([x, z, 2.6]); });
+    // 闊葉樹：散布全島
+    place(32, 30000, anywhere(0.12, 0.86), (x, z) => inland(x, z) && free(x, z, 2.8) && hillAt(x, z) < 4 && dry(x, z) && apart(x, z, 4),
+      (x, y, z, i) => { const t = broadleaf(g, x, y, z, 0.85 + rand() * 0.4, i + 7); this.circles.push(t.trunk); this.canopy.push(t.crown); });
+    // 紅楓：四給街外圈與山門參道（秋天的顏色）
+    place(6, 9000, () => { const a = rand() * Math.PI * 2, r = GARDEN.r + 3.5 + rand() * 5; return [GARDEN.x + Math.cos(a) * r, GARDEN.z + Math.sin(a) * r]; }, (x, z) => inland(x, z) && free(x, z, 1.6) && dry(x, z) && apart(x, z, 3),
+      (x, y, z, i) => { const t = maple(g, x, y, z, 1 + rand() * 0.3, i + 21); this.circles.push([x, z, 0.22]); this.canopy.push([x, z, 1.8]); });
+    place(3, 9000, () => [(rand() - 0.5) * 16, 18 * S + rand() * 8 * S], (x, z) => inland(x, z) && free(x, z, 1.8) && dry(x, z) && apart(x, z, 3),
+      (x, y, z, i) => { maple(g, x, y, z, 1 + rand() * 0.3, i + 51); this.circles.push([x, z, 0.22]); this.canopy.push([x, z, 1.8]); });
+    // 竹林：三好村後方、講堂旁
+    place(8, 9000, () => [rand() > 0.5 ? -24 * S + rand() * 8 * S : 8 * S + rand() * 9 * S, rand() > 0.5 ? -6 * S + rand() * 16 * S : 17 * S + rand() * 7 * S], (x, z) => inland(x, z, 0.88) && free(x, z, 1.4) && dry(x, z) && apart(x, z, 2.2),
+      (x, y, z, i) => { const t = bamboo(g, x, y, z, 1 + rand() * 0.3, i + 11); this.circles.push(t.trunk); this.canopy.push([x, z, 1.6]); });
+    // 灌叢：建築旁與路旁
+    place(46, 20000, anywhere(0.1, 0.88), (x, z) => inland(x, z, 0.9) && free(x, z, 0.5) && dry(x, z) && (edge(x, z) < 2.5 || this.inBox(x, z, 2)),
+      (x, y, z, i) => shrub(g, x, y, z, 0.8 + rand() * 0.6, i));
+    // 山石：山坡與溪邊
+    place(20, 9000, anywhere(0.15, 0.86), (x, z) => (hillAt(x, z) > 1.0 || streamAt(x + 2.6, z) > 0 || streamAt(x - 2.6, z) > 0) && inland(x, z) && free(x, z, 0.8) && dry(x, z),
+      (x, y, z, i) => { const r = 0.35 + rand() * 0.6; boulder(g, x, y + 0.08, z, r, i + 3); this.circles.push([x, z, r * 1.05]); });
+    // 步道旁的石燈籠（間隔較大，不要太多）
+    const pts = [];
+    this.graph.edges.forEach(([ia, ib]) => { const a = this.graph.nodes[ia], b = this.graph.nodes[ib], n = Math.ceil(a.distanceTo(b) / 3); for (let i = 0; i <= n; i++) pts.push([new THREE.Vector2().lerpVectors(a, b, i / n), b.clone().sub(a).normalize()]); });
     const lit = [];
-    for (let i = 0; i < pathPts.length; i += 6) {
-      const p = pathPts[i], q = pathPts[Math.min(pathPts.length - 1, i + 1)];
-      const dx = q.x - p.x, dz = q.y - p.y, l = Math.hypot(dx, dz) || 1;
-      const x = p.x - dz / l * 1.9, z = p.y + dx / l * 1.9;
-      if (!inland(x, z) || !dry(x, z) || lit.some(([lx, lz]) => Math.hypot(lx - x, lz - z) < 9) || this.reserved.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r) || blocked.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r) || inBox(x, z)) continue;
+    for (let i = 0; i < pts.length; i += 5) {
+      const [p, d] = pts[i];
+      const x = p.x - d.y * 1.85, z = p.y + d.x * 1.85;
+      if (!inland(x, z) || !dry(x, z) || lit.some(([lx, lz]) => Math.hypot(lx - x, lz - z) < 13) || this.reserved.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r) || blocked.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r) || this.inBox(x, z) || edge(x, z) < 0.25) continue;
       lantern(g, x, heightAt(x, z), z, 1, true); lit.push([x, z]); this.circles.push([x, z, 0.3]);
     }
     // 岸邊礁石
-    for (let i = 0; i < 44; i++) {
-      const a = rand() * Math.PI * 2, d = 0.96 + rand() * 0.09;
+    for (let i = 0; i < 40; i++) {
+      const a = rand() * Math.PI * 2, d = 0.95 + rand() * 0.1;
       const x = Math.cos(a) * islandR(a) * d, z = Math.sin(a) * islandR(a) * d;
       if (Math.abs(x) < 4 && z > 20 * S) continue;
-      boulder(g, x, heightAt(x, z) + 0.05, z, 0.3 + rand() * 0.55, 200 + i, mat('#7f7d72', { r: 1, flat: true }));
+      boulder(g, x, heightAt(x, z) + 0.05, z, 0.35 + rand() * 0.6, 200 + i, { wet: true, tall: 0.55 });
+    }
+  }
+
+  /** 草地與野花：實例化的草叢卡片（一次繪製） */
+  #grass() {
+    const rand = rng(77), edge = this.edge;
+    const grass = [], flowers = [];
+    const ok = (x, z) => islandD(x, z) < 0.89 && pondAt(x, z) < 0.18 && streamAt(x, z) < 0.01 && edge(x, z) > 0.12 && !this.inBox(x, z, 0.2)
+      && !this.reserved.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r * 0.8) && !this.circles.some(([cx, cz, r]) => Math.hypot(x - cx, z - cz) < r + 0.15);
+    const tint = (x, z, k = 1) => {
+      const h = hillAt(x, z), d = islandD(x, z), n = Math.sin(x * 0.31 + z * 0.17) * 0.5 + 0.5;
+      const dryK = Math.min(1, h * 0.12 + Math.max(0, d - 0.8) * 4) * 0.6;
+      return [(0.86 + n * 0.16 + dryK * 0.25) * k, (0.95 + n * 0.08 + dryK * 0.05) * k, (0.8 + dryK * 0.02) * k];
+    };
+    const maxGrass = this.lowPower ? 1500 : 2600;
+    for (let i = 0; i < 16000 && grass.length < maxGrass; i++) {
+      let x, z;
+      if (rand() < 0.5) {                            // 路旁較密
+        const e = this.graph.edges[Math.floor(rand() * this.graph.edges.length)], a = this.graph.nodes[e[0]], b = this.graph.nodes[e[1]];
+        const t = rand(), d = b.clone().sub(a).normalize(), s = (rand() > 0.5 ? 1 : -1) * (1.3 + rand() * 2.2);
+        x = a.x + (b.x - a.x) * t - d.y * s; z = a.y + (b.y - a.y) * t + d.x * s;
+      } else { const a = rand() * Math.PI * 2, r = islandR(a) * Math.sqrt(rand()) * 0.88; x = Math.cos(a) * r; z = Math.sin(a) * r; }
+      if (!ok(x, z)) continue;
+      const y = heightAt(x, z), sl = Math.abs(heightAt(x + 0.5, z) - y) + Math.abs(heightAt(x, z + 0.5) - y);
+      if (sl > 0.45) continue;
+      grass.push([x, y - 0.03, z, 0.75 + rand() * 0.7, rand() * 6.28, tint(x, z, 0.92 + rand() * 0.16)]);
+      if (rand() < 0.1 && edge(x, z) < 3) for (let k = 0; k < 3; k++) {
+        const fx = x + (rand() - 0.5) * 1.4, fz = z + (rand() - 0.5) * 1.4;
+        if (ok(fx, fz)) flowers.push([fx, heightAt(fx, fz) - 0.02, fz, 0.7 + rand() * 0.5, rand() * 6.28, [1, 1, 1]]);
+      }
+    }
+    this.grass = grassField(grass, GM.grass, { w: 0.85, h: 0.44 });
+    // 完成一站時要長出的花（預留在同一個實例化網格裡）
+    this.bloomSlots = new Map();
+    const order = [...this.spots.keys()];
+    this.flowers = grassField(flowers, GM.flower, { w: 0.75, h: 0.36, extra: order.length * 14 });
+    order.forEach((id, si) => this.bloomSlots.set(id, { start: flowers.length + si * 14, n: 14 }));
+    this.scene.add(this.grass, this.flowers);
+  }
+
+  /** 建築底部的接觸陰影：讓房子「坐」在地上 */
+  #contactShadows(list) {
+    const m = new THREE.MeshBasicMaterial({ map: TEX.contact, transparent: true, depthWrite: false, opacity: 0.55, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    for (const [x, y, z, w, d, rot] of list) {
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(w, d), m);
+      p.rotation.set(-Math.PI / 2, 0, rot); p.position.set(x, y + 0.06, z); p.renderOrder = 1;
+      this.scene.add(p);
     }
   }
 
@@ -299,29 +330,28 @@ export class World {
       const task = TASKS.find((t) => t.id === s.task);
       const npcDef = task?.npc || s.npc;
       const [fx, fz] = s.front;
-      const ring = ringMarker(npcDef ? '#d8a24a' : '#8fa6e6');
+      const ring = ringMarker();
       ring.group.position.set(fx, heightAt(fx, fz) + 0.06, fz);
       this.scene.add(ring.group); this.rings.set(s.id, ring);
       this.animated.push((t, dt) => ring.update(dt));
       this.reserved.push([fx, fz, 1.6]);
       if (npcDef) {
-        const v = villager(npcDef.look, npcDef.color, npcDef.name);
+        const v = villager(npcDef.look, npcDef.color, npcDef.name, task?.id || s.id);
         const face = Math.atan2(fx - s.at[0], fz - s.at[1]);
         // 島民站在光圈後側，面向來訪的人
         const nx = fx - Math.sin(face) * 0.55, nz = fz - Math.cos(face) * 0.55;
         v.group.position.set(nx, heightAt(nx, nz), nz);
         v.group.rotation.y = face;
         v.home = new THREE.Vector2(nx, nz); v.face = face;
-        v.setBadge(s.id === 'origin' ? 'talk' : 'need');
         if (s.id === 'origin') v.setMood('idle');
         this.scene.add(v.group); this.npcs.set(s.id, v);
         this.animated.push((t, dt) => v.update(dt));
       }
       if (task?.quest?.at) {
-        const list = task.quest.at.map(([x, z]) => {
-          const it = questItem(task.quest.item);
+        const list = task.quest.at.map(([x, z], i) => {
+          const it = questItem(task.quest.item, i);
           it.group.position.set(x, heightAt(x, z), z);
-          it.group.visible = false;
+          it.group.visible = task.quest.type === 'light' || task.quest.type === 'still';
           this.scene.add(it.group);
           this.animated.push((t, dt) => it.update(dt));
           this.reserved.push([x, z, 1.2]);
@@ -341,7 +371,9 @@ export class World {
     if (pondAt(x, z) > 0.42) return false;
     if (streamAt(x, z) > 0.35 && this.groundAt(x, z) === heightAt(x, z)) return false;
     for (const [cx, cz, r] of this.circles) if ((x - cx) ** 2 + (z - cz) ** 2 < r * r) return false;
-    const p = new THREE.Vector3();
+    // 石階兩側的石欄：只能從上下兩端進出
+    if (z < STAIR.z0 + 0.1 && z > STAIR.z1 - 0.1) { const d = Math.abs(x - STAIR.x); if (d > STAIR.hw - 0.05 && d < STAIR.hw + 0.4) return false; }
+    const p = _p;
     for (const b of this.boxes) {
       p.set(x, 0, z).applyMatrix4(b.inv);
       if (p.x > b.box.min.x && p.x < b.box.max.x && p.z > b.box.min.z && p.z < b.box.max.z) return false;
@@ -349,32 +381,33 @@ export class World {
     return true;
   }
 
-  /** 完成一站：島民開心、光圈與花朵綻放、四周亮起燈 */
+  /** 完成一站：島民開心，光圈旁長出一圈野花 */
   bloom(id, instant = false) {
     const s = this.spots.get(id); if (!s || s.bloomed) return;
     s.bloomed = true;
     const v = this.npcs.get(id);
-    if (v) { v.setMood('happy'); v.setBadge('done'); }
-    const [fx, fz] = s.front;
-    const g = new THREE.Group(); this.scene.add(g);
-    const petals = ['#f2c4cf', '#f7dbe2', '#ffe3a6', '#ffffff'];
-    const items = [];
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2 + Math.random() * 0.3, r = 1.6 + Math.random() * 1.6;
-      const x = fx + Math.cos(a) * r, z = fz + Math.sin(a) * r;
-      if (!this.walkable(x, z) && islandD(x, z) > 0.9) continue;
-      const f = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16 + Math.random() * 0.08, 1), mat(petals[i % 4], { r: 0.7 }));
-      f.position.set(x, heightAt(x, z) + 0.18, z); f.scale.setScalar(instant ? 1 : 0.01); g.add(f); items.push(f);
-      if (i % 3 === 0) {
-        const sp = new THREE.Sprite(glowMaterial.clone()); sp.material.opacity = 0.6;
-        sp.position.set(x, heightAt(x, z) + 0.9, z); sp.scale.setScalar(instant ? 1.3 : 0.01); g.add(sp); items.push(sp);
-      }
+    if (v) v.setMood('happy');
+    const slot = this.bloomSlots?.get(id); if (!slot) return;
+    const [fx, fz] = s.front, rand = rng(id.length * 131 + id.charCodeAt(0));
+    const targets = [];
+    for (let i = 0; i < slot.n * 3 && targets.length < slot.n; i++) {
+      const a = rand() * Math.PI * 2, r = 1.5 + rand() * 2.4, x = fx + Math.cos(a) * r, z = fz + Math.sin(a) * r;
+      if (islandD(x, z) > 0.88 || pondAt(x, z) > 0.2 || this.edge(x, z) < 0.05 || this.inBox(x, z)) continue;
+      targets.push([x, heightAt(x, z) - 0.02, z, 0.8 + rand() * 0.5, rand() * 6.28]);
     }
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
     let t0 = instant ? 1 : 0;
-    this.animated.push((t, dt) => {
-      if (t0 < 1) { t0 = Math.min(1, t0 + dt * 0.9); const e = 1 - (1 - t0) ** 3; items.forEach((m) => m.scale.setScalar(m.isSprite ? 1.3 * e : e)); }
-      items.forEach((m, i) => { if (m.isSprite) m.material.opacity = 0.45 + Math.sin(t * 2 + i) * 0.15; });
-    });
+    const apply = (e) => {
+      targets.forEach(([x, y, z, s0, ry], i) => {
+        const k = Math.max(0, Math.min(1, e * 1.6 - i * 0.04));
+        q.setFromAxisAngle(up, ry); p.set(x, y, z); sc.setScalar(s0 * (1 - (1 - k) ** 3));
+        m.compose(p, q, sc); this.flowers.setMatrixAt(slot.start + i, m);
+      });
+      this.flowers.instanceMatrix.needsUpdate = true;
+    };
+    if (instant) { apply(1); return; }
+    const fn = (t, dt) => { t0 = Math.min(1, t0 + dt * 0.8); apply(t0); if (t0 >= 1) this.animated.splice(this.animated.indexOf(fn), 1); };
+    this.animated.push(fn);
   }
 
   #lotusPads() {
@@ -383,7 +416,7 @@ export class World {
       for (let i = 0; i < 20; i++) {
         const a = i * 2.39 + pi, d = p.s * (0.25 + (i % 4) * 0.17);
         if (pi === 1 && Math.abs(Math.sin(a - 0.5)) < 0.35) continue;      // 讓出拱橋
-        lotus(g, p.x + Math.cos(a) * d, 0.02, p.z + Math.sin(a) * d, pi * 13 + i + 1);
+        lotus(g, p.x + Math.cos(a) * d, 0.03, p.z + Math.sin(a) * d, pi * 13 + i + 1);
       }
     });
     bake(g, this.scene, this.sprites);
@@ -391,7 +424,7 @@ export class World {
 
   /** 白鷺：繞島緩緩飛行 */
   #birds() {
-    const birdM = mat('#f7f4ec', { r: 0.8, side: THREE.DoubleSide });
+    const birdM = new THREE.MeshStandardMaterial({ color: '#f4f2ec', roughness: 0.8, side: THREE.DoubleSide });
     const make = () => {
       const b = new THREE.Group();
       const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6).scale(0.7, 0.6, 1.8), birdM); b.add(body);
@@ -414,87 +447,80 @@ export class World {
         x.wings[0].rotation.z = f; x.wings[1].rotation.z = -f;
       }));
     };
-    flock(0, -4 * S, 22 * S, 18, 7, 0.08, 4);
-    flock(6 * S, 2 * S, 15 * S, 14, 4, -0.11, 9);
+    flock(0, -4 * S, 22 * S, 18, 5, 0.08, 4);
     flock(-14 * S, 10 * S, 9 * S, 11, 3, 0.15, 13);
   }
 
-  #lowMist() {
-    const tex = cloudTexture();
-    const rand = rng(23);
-    const items = [];
-    for (let i = 0; i < 24; i++) {
-      const a = rand() * Math.PI * 2, d = i < 14 ? 0.95 + rand() * 0.6 : 0.35 + rand() * 0.4;
-      const x = Math.cos(a) * islandR(a) * d, z = Math.sin(a) * islandR(a) * d;
-      const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: i % 3 ? '#ffffff' : '#f6f0e0', transparent: true, opacity: 0.1, depthWrite: false, fog: false }));
-      const s = (7 + rand() * 6) * S;
-      m.scale.set(s, s * 0.32, 1);
-      m.position.set(x, heightAt(x, z) * (i < 14 ? 0 : 1) + 1 + rand() * 1.2, z);
-      this.scene.add(m);
-      items.push({ m, x, z, ph: rand() * 6, sp: 0.03 + rand() * 0.04 });
-    }
-    this.animated.push((t) => items.forEach((it) => {
-      it.m.position.x = it.x + Math.sin(t * it.sp + it.ph) * 3;
-      it.m.position.z = it.z + Math.cos(t * it.sp * 0.8 + it.ph) * 1.5;
-      it.m.material.opacity = 0.06 + 0.05 * (0.5 + 0.5 * Math.sin(t * 0.2 + it.ph));
-    }));
-  }
-
-  /** 遠方的群山與小島：讓視野開闊，有「身在山水之間」的感覺 */
+  /** 遠山：三層山稜，越遠越淡，像湖邊被群山環抱（依空氣透視上色） */
   #farHills() {
-    const rand = rng(77);
-    const g = new THREE.Group();
-    const cols = ['#9fb3ad', '#a9bcb6', '#b6c6c0', '#c4d0ca'];
-    for (let ring = 0; ring < 3; ring++) {
-      const n = 16 + ring * 6, R = 230 + ring * 120;
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + rand() * 0.2, r = R + rand() * 60;
-        const h = (30 + rand() * 60) * (1 + ring * 0.6), w = (70 + rand() * 90) * (1 + ring * 0.4);
-        const geo = new THREE.ConeGeometry(w, h, 9, 3);
-        const pos = geo.attributes.position;
-        for (let k = 0; k < pos.count; k++) { const y = pos.getY(k); if (y > -h / 2 + 0.1 && y < h / 2 - 0.1) { pos.setX(k, pos.getX(k) * (0.85 + rand() * 0.3)); pos.setZ(k, pos.getZ(k) * (0.85 + rand() * 0.3)); } }
-        geo.computeVertexNormals();
-        const m = new THREE.Mesh(geo, mat(cols[ring + (i % 2)] || cols[3], { r: 1, flat: true }));
-        m.position.set(Math.cos(a) * r, h / 2 - 8, Math.sin(a) * r);
-        m.scale.y = 0.75;
-        g.add(m);
+    const haze = new THREE.Color(HAZE), sun = SUN_DIR;
+    const layers = [
+      { R: 210, W: 80, H: [26, 64], col: '#4f6a52', hz: 0.32, seed: 3, seg: 240 },
+      { R: 320, W: 110, H: [40, 105], col: '#5e7466', hz: 0.55, seed: 7, seg: 220 },
+      { R: 470, W: 140, H: [60, 160], col: '#71837d', hz: 0.72, seed: 11, seg: 200 },
+    ];
+    for (const L of layers) {
+      const r = rng(L.seed), ph = Array.from({ length: 6 }, () => r() * 6.28);
+      const ridge = (a) => {
+        let h = 0.5 + 0.24 * Math.sin(a * 3 + ph[0]) + 0.16 * Math.sin(a * 7 + ph[1]) + 0.1 * Math.sin(a * 13 + ph[2]) + 0.05 * Math.sin(a * 31 + ph[3]) + 0.03 * Math.sin(a * 57 + ph[4]);
+        h = Math.pow(Math.max(0.02, h), 1.5);
+        const north = 0.62 + 0.38 * Math.max(0, -Math.sin(a));          // 北邊的山較高
+        return (L.H[0] + (L.H[1] - L.H[0]) * h) * north;
+      };
+      const rows = 7, pos = [], idx = [];
+      for (let i = 0; i <= L.seg; i++) {
+        const a = (i / L.seg) * Math.PI * 2, hm = ridge(a);
+        for (let j = 0; j <= rows; j++) {
+          const t = j / rows, rr = L.R + t * L.W * (0.9 + 0.2 * Math.sin(a * 5 + ph[5]));
+          const prof = Math.pow(Math.sin(Math.min(1, t * 1.25) * Math.PI * 0.5 + (t > 0.8 ? 0 : 0)), 0.8) * (t < 0.8 ? 1 : 1 - (t - 0.8) * 2.5);
+          const y = -3 + hm * Math.max(0, prof) * (1 + 0.06 * Math.sin(a * 90 + j * 2.1));
+          pos.push(Math.cos(a) * rr, y, Math.sin(a) * rr);
+        }
       }
+      for (let i = 0; i < L.seg; i++) for (let j = 0; j < rows; j++) {
+        const a = i * (rows + 1) + j, b = a + rows + 1;
+        idx.push(a, b, a + 1, a + 1, b, b + 1);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      const n = geo.attributes.normal, p = geo.attributes.position, col = new Float32Array(p.count * 3);
+      const base = new THREE.Color(L.col), c = new THREE.Color();
+      const hmax = L.H[1];
+      for (let i = 0; i < p.count; i++) {
+        const lam = Math.max(0, n.getX(i) * sun.x + n.getY(i) * sun.y + n.getZ(i) * sun.z);
+        c.copy(base).multiplyScalar(0.55 + 0.6 * lam);
+        const low = 1 - Math.min(1, Math.max(0, p.getY(i)) / (hmax * 0.6));      // 山腳的水氣
+        c.lerp(haze, Math.min(1, L.hz + low * 0.35));
+        col.set([c.r, c.g, c.b], i * 3);
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
+      mesh.renderOrder = -5;
+      this.scene.add(mesh);
     }
-    this.scene.add(g);
   }
 
-  /** 飄落的花瓣 */
-  #petals() {
-    const n = 260, pos = new Float32Array(n * 3), seed = [];
-    const rand = rng(5);
-    for (let i = 0; i < n; i++) seed.push([(rand() - 0.5) * 120 * S / 2.2, rand() * 14, (rand() - 0.5) * 120 * S / 2.2, rand() * 6]);
-    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d');
-    x.fillStyle = '#f6c9d4'; x.beginPath(); x.ellipse(16, 16, 12, 7, 0.6, 0, 7); x.fill();
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-    const pts = new THREE.Points(geo, new THREE.PointsMaterial({ map: tex, size: 0.28, transparent: true, depthWrite: false, opacity: 0.9 }));
-    pts.frustumCulled = false;
-    this.scene.add(pts);
-    this.petalCenter = new THREE.Vector2();
-    this.animated.push((t) => {
-      const cx = this.petalCenter.x, cz = this.petalCenter.y;
-      for (let i = 0; i < n; i++) {
-        const [ox, oy, oz, ph] = seed[i];
-        const y = 14 - ((t * 0.6 + oy + ph) % 14);
-        const wrap = (v, c) => c + ((((v - c) % 60) + 90) % 60) - 30;
-        pos[i * 3] = wrap(ox + Math.sin(t * 0.5 + ph) * 2 + t * 0.4, cx);
-        pos[i * 3 + 1] = heightAt(pos[i * 3], pos[i * 3 + 2]) + y;
-        pos[i * 3 + 2] = wrap(oz + Math.cos(t * 0.4 + ph) * 2, cz);
-      }
-      geo.attributes.position.needsUpdate = true;
-    });
+  /** 陽光與陰影範圍跟著旅人（往鏡頭看的方向偏一點）；以陰影貼圖的像素為單位移動，陰影不會閃爍 */
+  follow(x, z, fx = 0, fz = 0) {
+    const cx = this.wide ? 0 : x + fx * 9, cz = this.wide ? -3 : z + fz * 9;
+    const sun = this.sun, d = SUN_DIR;
+    const right = _r.set(-d.z, 0, d.x).normalize(), up = _u.crossVectors(right, d).normalize();
+    const p = _q.set(cx, 0, cz), t = this.shadowTexel;
+    const a = Math.round(p.dot(right) / t) * t, b = Math.round(p.dot(up) / t) * t, c = p.dot(d);
+    const snapped = _s.set(0, 0, 0).addScaledVector(right, a).addScaledVector(up, b).addScaledVector(d, c);
+    sun.target.position.copy(snapped);
+    sun.position.copy(snapped).addScaledVector(d, 90);
   }
 
-  /** 陽光的陰影範圍跟著旅人移動 */
-  follow(x, z) {
-    this.sun.target.position.set(x, 0, z);
-    this.sun.position.set(x, 0, z).addScaledVector(SUN_DIR, 80);
-    this.petalCenter?.set(x, z);
+  /** 首頁的高空繞島鏡頭：陰影範圍涵蓋全島 */
+  shadowWide(on) {
+    if (this.wide === on) return;
+    this.wide = on;
+    const h = on ? 46 : SHADOW_HALF, c = this.sun.shadow.camera;
+    Object.assign(c, { left: -h, right: h, top: h, bottom: -h });
+    c.updateProjectionMatrix();
+    this.shadowTexel = (h * 2) / this.sun.shadow.mapSize.x;
   }
 
   /** 地面高度（橋上用橋面高度） */
@@ -502,7 +528,7 @@ export class World {
     for (const b of this.bridges || []) {
       const dx = x - b.x, dz = z - b.z, ax = Math.sin(b.angle), az = Math.cos(b.angle);
       const along = dx * ax + dz * az, across = -dx * az + dz * ax;
-      if (Math.abs(along) < b.len / 2 && Math.abs(across) < 1.1) return b.y + Math.sin((along / b.len + 0.5) * Math.PI) * 0.35 + 0.08;
+      if (Math.abs(along) < b.len / 2 && Math.abs(across) < 1.1) return b.y + Math.sin((along / b.len + 0.5) * Math.PI) * 0.35 + 0.03;
     }
     return heightAt(x, z);
   }
@@ -517,7 +543,8 @@ export class World {
   }
 
   update(t, dt = 0.016) {
-    for (const fn of this.animated) fn(t, dt);
+    WIND.value = t;
+    for (const fn of [...this.animated]) fn(t, dt);
     for (const s of this.sprites) {
       const f = s.userData.flicker ?? 0;
       s.scale.setScalar(s.userData.base * (0.94 + 0.06 * Math.sin(t * 9 + f) + 0.03 * Math.sin(t * 23 + f * 2)));
@@ -525,11 +552,4 @@ export class World {
   }
 }
 
-function glowTexFor(color) {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
-  const x = c.getContext('2d');
-  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, color); g.addColorStop(0.35, color + '66'); g.addColorStop(1, color + '00');
-  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
-}
+const _p = new THREE.Vector3(), _r = new THREE.Vector3(), _u = new THREE.Vector3(), _q = new THREE.Vector3(), _s = new THREE.Vector3();

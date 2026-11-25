@@ -59,40 +59,39 @@ export function createWater(sunDir) {
         vec3 n = normalize(vN + vec3(r1 * 0.06 + r2 * 0.035, 0.0, r2 * 0.06 - r1 * 0.03));
 
         vec3 v = normalize(cameraPosition - vWorld);
-        float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);
+        float cosT = max(dot(n, v), 0.0);
+        float fres = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
 
-        // 水體顏色：岸邊青綠 → 外海靛藍
-        vec3 deep = vec3(0.10, 0.25, 0.30);
-        vec3 mid = vec3(0.18, 0.38, 0.38);
-        vec3 shallow = vec3(0.42, 0.62, 0.52);
-        float sh = 1.0 - smoothstep(1.0, 1.32, d);
-        float md = 1.0 - smoothstep(1.1, 2.1, d);
+        // 水體顏色：岸邊帶一點沙底的青綠 → 外海深藍綠
+        vec3 deep = vec3(0.03, 0.11, 0.14);
+        vec3 mid = vec3(0.045, 0.19, 0.2);
+        vec3 shallow = vec3(0.11, 0.32, 0.27);
+        float sh = 1.0 - smoothstep(1.0, 1.22, d);
+        float md = 1.0 - smoothstep(1.08, 1.9, d);
         vec3 body = mix(deep, mid, md);
         body = mix(body, shallow, sh * sh);
+        // 島內的池塘與小溪：較暗的綠褐色
+        float inland = 1.0 - smoothstep(0.86, 0.93, d);
+        body = mix(body, vec3(0.07, 0.12, 0.09), inland);
 
-        // 反射天空：仰角越低越靠近地平線的紫粉色，朝西帶暖光
+        // 反射天空
         vec3 r = reflect(-v, n);
         float ry = clamp(r.y, 0.0, 1.0);
-        vec3 sky = mix(vec3(0.95, 0.88, 0.72), vec3(0.42, 0.68, 0.90), smoothstep(0.0, 0.5, ry));
-        vec3 sunH = normalize(vec3(uSun.x, 0.0, uSun.z));
-        float toward = max(dot(normalize(vec3(r.x, 0.0, r.z)), sunH), 0.0);
-        sky += vec3(1.0, 0.8, 0.5) * pow(toward, 6.0) * (1.0 - smoothstep(0.0, 0.3, ry)) * 0.3;
-        vec3 col = mix(body, sky, 0.10 + 0.5 * fres);
+        vec3 sky = mix(vec3(0.78, 0.84, 0.88), vec3(0.30, 0.50, 0.78), smoothstep(0.0, 0.6, ry));
+        vec3 col = mix(body, sky, clamp(fres * 0.8 + 0.04, 0.0, 1.0) * (inland > 0.5 ? 0.75 : 1.0));
 
-        // 夕陽碎金光帶
-        float spec = pow(max(dot(r, normalize(uSun)), 0.0), 220.0);
-        float glitter = pow(max(dot(r, normalize(uSun)), 0.0), 18.0);
-        col += vec3(1.0, 0.9, 0.62) * (spec * 1.6 + glitter * 0.05) * (1.0 - smoothstep(1.6, 3.2, d));
-        // 遠海漸漸沒入夜色
-        col = mix(col, vec3(0.80, 0.86, 0.84), smoothstep(1.9, 4.2, d) * 0.85);
+        // 陽光的反光
+        float sd = max(dot(r, normalize(uSun)), 0.0);
+        col += vec3(1.0, 0.94, 0.8) * (pow(sd, 400.0) * 2.2 + pow(sd, 40.0) * 0.06) * (1.0 - smoothstep(1.6, 3.2, d));
+        // 遠處融入天邊的薄霧
+        col = mix(col, vec3(0.74, 0.81, 0.85), smoothstep(2.0, 5.0, d) * 0.8);
 
-        // 岸邊浪花：一圈貼岸、幾道往外推的細線
+        // 岸邊：一圈細細的濕潤水線與零星的白浪
         float shore = d - 0.995;
-        float foam = smoothstep(0.03, 0.0, abs(shore)) * 0.75;
-        float waves = smoothstep(0.86, 1.0, sin(shore * 120.0 - uTime * 1.6 + n2(p * 0.8) * 2.0)) * (1.0 - smoothstep(0.0, 0.07, shore)) * step(0.0, shore);
-        foam += waves * 0.45;
-        foam *= 0.75 + 0.25 * n2(p * 2.4 + uTime * 0.2);
-        col = mix(col, vec3(0.96, 0.95, 0.88), clamp(foam, 0.0, 1.0));
+        float foam = smoothstep(0.018, 0.0, abs(shore)) * 0.35 * (0.5 + 0.5 * n2(p * 1.7 + uTime * 0.15));
+        float waves = smoothstep(0.93, 1.0, sin(shore * 110.0 - uTime * 1.3 + n2(p * 0.8) * 2.0)) * (1.0 - smoothstep(0.0, 0.05, shore)) * step(0.0, shore);
+        foam += waves * 0.22 * smoothstep(0.2, 0.8, n2(p * 0.6 - uTime * 0.05));
+        col = mix(col, vec3(0.92, 0.93, 0.9), clamp(foam, 0.0, 1.0) * (1.0 - inland));
 
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
@@ -100,7 +99,7 @@ export function createWater(sunDir) {
         #include <fog_fragment>
       }`,
   });
-  const geo = new THREE.PlaneGeometry(1400, 1400, 170, 170);
+  const geo = new THREE.PlaneGeometry(1400, 1400, 110, 110);
   geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = 0.0;

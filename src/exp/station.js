@@ -80,7 +80,7 @@ export function mount(el, spot, ctx) {
     quest.innerHTML = `
       <span class="st-step">操作</span>
       <p class="st-quest-t"><b>島上任務：</b>${esc(task.quest.label)}${task.quest.n > 1 ? `（${task.quest.n} 個）` : ''}</p>
-      <p class="exp-hint">${task.quest.type === 'escort' ? `接下任務後，${esc(task.npc.name)}會跟在你身後。用方向鍵帶路，走到講堂前的光圈。` : task.quest.type === 'still' ? '走到湖邊的蓮花旁，放開方向鍵站好，跟著畫面上的光圈呼吸三次。這是佛教最基本的修行：先讓心靜下來。' : '接下任務後，地圖上會出現發光的目標。用方向鍵走過去就會完成。'}</p>
+      <p class="exp-hint">${task.quest.type === 'escort' ? `接下任務後，${esc(task.npc.name)}會跟在你身後。跟著地上的金色箭頭，走到 AI 智慧講堂前就完成了。` : task.quest.type === 'still' ? '接下任務後，跟著地上的金色箭頭走到湖邊發光的蒲團上，放開方向鍵站好，跟著畫面中間的光圈呼吸三次。這是佛教最基本的修行：先讓心靜下來。' : `接下任務後，${task.quest.item === 'lamp' ? '要點亮的石燈' : '要撿的東西'}會出現光柱。跟著地上的金色箭頭走過去，就會自動完成。`}</p>
       ${active ? `<p class="st-prog">進行中：${prog.done} / ${prog.total}</p>` : ''}
       <button type="button" class="btn btn-primary st-go">${active ? '繼續任務' : '好，我來幫忙！'}</button>`;
     quest.querySelector('.st-go').addEventListener('click', () => { voice.stop(); ctx.startQuest(task.id); });

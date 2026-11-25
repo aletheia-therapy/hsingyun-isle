@@ -1,7 +1,10 @@
 import * as THREE from 'three';
-import { heightAt, streamAt } from './terrain.js';
+import { heightAt, streamAt, STAIR, stairRamp } from './terrain.js';
 import { GARDEN, GATE, S } from '../data/spots.js';
 import { TASKS } from '../data/tasks.js';
+import { TEX } from './textures.js';
+import { M } from './props.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /**
  * 島上的步道網：環山主步道、善念實踐園的環池小徑、山門參道、登頂步道，
@@ -17,7 +20,7 @@ export class PathGraph {
     this.nodes = [];
     this.adj = [];
     this.edges = [];
-    this.kinds = [];          // 每條邊的寬度種類：main / small
+    this.kinds = [];          // 每條邊的種類：main / small / stair
     const ring = (R, kind) => {
       const ids = [];
       for (let i = 0; i < R.n; i++) ids.push(this.#node(ringPt(R, (i * 360) / R.n)));
@@ -38,8 +41,10 @@ export class PathGraph {
     const gate = this.#chain([[GATE.dock[0], GATE.dock[1] - 0.6], [0, 27.6 * S], [0, 23.4 * S], [-1.2, 19.6 * S], [0.6, 15.6 * S], [0.8, 11.6 * S]], 'main');
     this.startNode = gate[1];
     this.#link(gate.at(-1), this.#nearest(this.ringIds, gate.at(-1)), 'main');
-    // 登頂步道：從環山步道西南側盤旋而上
-    const up = this.#chain([[-8.4 * S, 6.6 * S], [-6.4 * S, 4.6 * S], [-4.4 * S, 3.6 * S], [-2.2 * S, 2.0 * S], [0, 0.4 * S]], 'small');
+    // 登頂石階：從環山步道南側筆直上到願行台
+    const up = this.#chain([[STAIR.x, STAIR.z0 + 2.2], [STAIR.x, STAIR.z0]], 'small');
+    this.stairTop = this.#node(new THREE.Vector2(STAIR.x, STAIR.z1));
+    this.#link(up.at(-1), this.stairTop, 'stair');
     // 老街：串起希望亭旁的石燈
     const lamps = TASKS.find((t) => t.id === 'hope')?.quest?.at || [];
     if (lamps.length) {
@@ -131,7 +136,40 @@ export class PathGraph {
     return ids[0] === from ? ids.map((i) => this.nodes[i].clone()) : [];
   }
 
-  /** 步道：淺色石板路（主步道較寬），沿地形起伏 */
+  /** 每條步道的半寬 */
+  halfWidth(ei) { const k = this.kinds[ei]; return k === 'main' ? WIDTH.main : k === 'stair' ? STAIR.hw : WIDTH.small; }
+
+  /**
+   * 到最近步道「邊緣」的距離（負值＝在步道上）。用 4 公尺的格子索引，查詢很快。
+   * 附近約 8 公尺內沒有步道時回傳 9。
+   */
+  edgeField() {
+    if (this._field) return this._field;
+    const C = 4, grid = new Map(), key = (i, j) => i * 1000 + j;
+    this.edges.forEach(([ia, ib], ei) => {
+      const a = this.nodes[ia], b = this.nodes[ib];
+      const i0 = Math.floor((Math.min(a.x, b.x) - 4) / C), i1 = Math.floor((Math.max(a.x, b.x) + 4) / C);
+      const j0 = Math.floor((Math.min(a.y, b.y) - 4) / C), j1 = Math.floor((Math.max(a.y, b.y) + 4) / C);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = key(i, j); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(ei); }
+    });
+    const nodes = this.nodes, edges = this.edges;
+    this._field = (x, z) => {
+      const list = grid.get(key(Math.floor(x / C), Math.floor(z / C)));
+      if (!list) return 9;
+      let best = 9;
+      for (const ei of list) {
+        const a = nodes[edges[ei][0]], b = nodes[edges[ei][1]];
+        const abx = b.x - a.x, abz = b.y - a.y, L2 = abx * abx + abz * abz || 1;
+        const t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.y) * abz) / L2));
+        const d = Math.hypot(x - a.x - abx * t, z - a.y - abz * t) - this.halfWidth(ei);
+        if (d < best) best = d;
+      }
+      return best;
+    };
+    return this._field;
+  }
+
+  /** 步道：不規則石板路，兩側是泥土路肩、邊緣自然地消失在草地裡；沿地形起伏 */
   buildMesh() {
     const make = (kind, W, color) => {
       const pos = [], uv = [], idx = [];
@@ -142,12 +180,14 @@ export class PathGraph {
         const dir = new THREE.Vector2().subVectors(b, a).normalize();
         const side = new THREE.Vector2(-dir.y, dir.x).multiplyScalar(W);
         const base = pos.length / 3;
+        const lift = 0.045 + (ei % 7) * 0.0012;                // 交會處不會互相閃爍
+        const v0 = (ei * 0.37) % 1;
         for (let i = 0; i <= n; i++) {
           const p = new THREE.Vector2().lerpVectors(a, b, i / n);
           for (const s of [-1, 1]) {
             const x = p.x + side.x * s, z = p.y + side.y * s;
-            pos.push(x, Math.max(heightAt(x, z), streamAt(x, z) > 0 ? 0.3 : -9) + 0.05, z);
-            uv.push(s < 0 ? 0 : 1, (len * i) / n / (W * 2));
+            pos.push(x, Math.max(heightAt(x, z), streamAt(x, z) > 0 ? 0.3 : -9) + lift, z);
+            uv.push(s < 0 ? 0 : 1, v0 + (len * i) / n / (W * 2 * 4));
           }
           if (i < n) { const k = base + i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
         }
@@ -157,32 +197,65 @@ export class PathGraph {
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       geo.setIndex(idx);
       geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, map: flagstone(), roughness: 0.95, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      const mt = new THREE.MeshStandardMaterial({ color, map: TEX.flagstone, roughness: 0.95, side: THREE.DoubleSide, alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      mt.alphaToCoverage = true;
+      const m = new THREE.Mesh(geo, mt);
       m.receiveShadow = true;
       return m;
     };
     const g = new THREE.Group();
-    g.add(make('main', 1.15, '#d9cfb6'));
-    g.add(make('small', 0.75, '#cfc4a8'));
+    g.add(make('main', WIDTH.main + 0.25, '#ffffff'));
+    g.add(make('small', WIDTH.small + 0.2, '#f1ece0'));
+    const st = this.#steps();
+    if (st) g.add(st);
+    g.add(this.#stairs());
     return g;
+  }
+
+  /** 其他步道的陡坡：每 0.5 公尺一階的小石階（不是一道斜坡） */
+  #steps() {
+    const geos = [];
+    this.edges.forEach(([ia, ib], ei) => {
+      if (this.kinds[ei] === 'stair') return;
+      const a = this.nodes[ia], b = this.nodes[ib], len = a.distanceTo(b);
+      if (len < 0.6) return;
+      const W = this.halfWidth(ei) * 1.85, n = Math.max(1, Math.round(len / 0.5)), L = len / n;
+      const ang = Math.atan2(b.x - a.x, b.y - a.y);
+      for (let i = 0; i < n; i++) {
+        const p0 = new THREE.Vector2().lerpVectors(a, b, i / n), p1 = new THREE.Vector2().lerpVectors(a, b, (i + 1) / n), m = p0.clone().add(p1).multiplyScalar(0.5);
+        if (streamAt(m.x, m.y) > 0 || streamAt(p0.x, p0.y) > 0 || streamAt(p1.x, p1.y) > 0) continue;
+        const h0 = heightAt(p0.x, p0.y), h1 = heightAt(p1.x, p1.y);
+        if (Math.abs(h1 - h0) / L < 0.22) continue;
+        const top = Math.max(h0, h1) + 0.03, bot = Math.min(h0, h1) - 0.12;
+        const box = new THREE.BoxGeometry(W, top - bot, L + 0.04);
+        box.rotateY(ang); box.translate(m.x, (top + bot) / 2, m.y);
+        geos.push(box);
+      }
+    });
+    if (!geos.length) return null;
+    const mesh = new THREE.Mesh(mergeGeometries(geos), M.stone());
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  /** 登頂的大石階：每階約 16 公分高，兩側有階梯狀的石欄（坐落在 terrain.js 墊出的土堤上） */
+  #stairs() {
+    const geos = [];
+    const { x, z0, z1, hw } = STAIR, len = z0 - z1, rise = STAIR.h1 - STAIR.h0;
+    const n = Math.max(4, Math.round(Math.abs(rise) / 0.16)), tread = len / n;
+    const add = (w, y0, y1, d, cx, cz) => { const g = new THREE.BoxGeometry(w, y1 - y0, d); g.translate(cx, (y0 + y1) / 2, cz); geos.push(g); };
+    for (let k = 0; k < n; k++) {
+      const zc = z0 - (k + 0.5) * tread;
+      const top = stairRamp((k + 1) / n) + 0.02, bot = stairRamp(k / n) - 0.32;
+      add(hw * 2, bot, top, tread + 0.03, x, zc);                                                       // 踏階
+      for (const sx of [-1, 1]) add(0.3, bot - 0.1, top + 0.34, tread + 0.03, x + sx * (hw + 0.15), zc);   // 石欄
+    }
+    add(hw * 2 + 0.6, STAIR.h1 - 0.3, STAIR.h1 + 0.03, 0.7, x, z1 - 0.3);     // 頂端平台石
+    add(hw * 2 + 0.6, STAIR.h0 - 0.3, STAIR.h0 + 0.02, 0.8, x, z0 + 0.35);    // 底端平台石
+    const mesh = new THREE.Mesh(mergeGeometries(geos), M.stone());
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
   }
 }
 
-let stoneTex = null;
-function flagstone() {
-  if (stoneTex) return stoneTex;
-  const c = document.createElement('canvas'); c.width = c.height = 128;
-  const x = c.getContext('2d');
-  x.fillStyle = '#e8e4da'; x.fillRect(0, 0, 128, 128);
-  x.strokeStyle = 'rgba(90,84,70,0.55)'; x.lineWidth = 2;
-  const rows = [0, 34, 70, 100, 128];
-  for (let r = 0; r < rows.length - 1; r++) {
-    x.beginPath(); x.moveTo(0, rows[r]); x.lineTo(128, rows[r]); x.stroke();
-    const off = r % 2 ? 40 : 75;
-    x.beginPath(); x.moveTo(off, rows[r]); x.lineTo(off + 4, rows[r + 1]); x.stroke();
-  }
-  for (let i = 0; i < 300; i++) { const v = 200 + Math.random() * 50; x.fillStyle = `rgba(${v},${v},${v - 10},0.35)`; x.fillRect(Math.random() * 128, Math.random() * 128, 2, 2); }
-  stoneTex = new THREE.CanvasTexture(c);
-  stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.colorSpace = THREE.SRGBColorSpace;
-  return stoneTex;
-}
+export const WIDTH = { main: 1.15, small: 0.75 };

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { heightAt } from './terrain.js';
-import { mat, glow } from './props.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { humanFigure, animateFigure } from './npc.js';
 
 const SPEED = 3.6;      // 公尺／秒
@@ -45,30 +45,20 @@ export class Explorer {
 
   #build() {
     const g = new THREE.Group();
-    // 寫實比例的年輕旅人：青綠外套、米色長褲、背包，右手提一盞小燈
-    this.fig = humanFigure({ top: '#3f7a73', pants: '#d9ccb0', skin: '#dcae88', hair: '#231b16', shoe: '#4a3a2c' });
+    // 寫實比例的年輕旅人：青綠外套、米色長褲、背著背包、圍著淡金色圍巾
+    const M4 = (x, y, z, rx = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), new THREE.Vector3(1, 1, 1));
+    this.fig = humanFigure({
+      top: '#3d6f69', pants: '#cbbd9e', skin: '#dcae88', hair: '#231b16', shoe: '#4a3a2c', longSleeve: true,
+      extras: { torso: [
+        [new RoundedBoxGeometry(0.29, 0.37, 0.15, 2, 0.045), '#9c7440', M4(0, 0.34, -0.17)],
+        [new RoundedBoxGeometry(0.2, 0.12, 0.05, 2, 0.02), '#86602f', M4(0, 0.24, -0.255)],
+        [new THREE.BoxGeometry(0.035, 0.34, 0.02), '#6e5226', M4(-0.1, 0.35, 0.115)],
+        [new THREE.BoxGeometry(0.035, 0.34, 0.02), '#6e5226', M4(0.1, 0.35, 0.115)],
+        [new THREE.TorusGeometry(0.068, 0.026, 8, 18), '#d6b06a', M4(0, 0.585, 0, Math.PI / 2)],
+      ] },
+    });
     g.add(this.fig.root);
     this.body = this.fig.body;
-    const bag = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.36, 0.14), mat('#a57a3a', { r: 0.8 }));
-    bag.position.set(0, 0.34, -0.17); bag.castShadow = true; this.fig.torso.add(bag);
-    const strap = mat('#7a5a2a');
-    for (const sx of [-1, 1]) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.34, 0.02), strap); st.position.set(sx * 0.1, 0.35, 0.105); this.fig.torso.add(st); }
-    const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.025, 8, 16), mat('#d9b36a', { r: 0.9 }));
-    scarf.rotation.x = Math.PI / 2; scarf.position.y = 0.58; this.fig.torso.add(scarf);
-    this.lantern = new THREE.Group();
-    this.lantern.position.set(0, -0.33, 0.02);
-    this.fig.arms[1].userData.elbow.add(this.lantern);
-    const dark = mat('#2e241c', { r: 0.7 });
-    const add = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); this.lantern.add(o); return o; };
-    add(new THREE.CylinderGeometry(0.004, 0.004, 0.08, 4), dark, 0, -0.04, 0);
-    add(new THREE.CylinderGeometry(0.03, 0.04, 0.02, 10), dark, 0, -0.09, 0);
-    const shade = add(new THREE.SphereGeometry(0.06, 16, 12), mat('#ffe0a8', { e: '#ffa040', ei: 2.2 }), 0, -0.16, 0);
-    shade.scale.y = 1.2;
-    add(new THREE.CylinderGeometry(0.03, 0.024, 0.02, 10), dark, 0, -0.235, 0);
-    glow(this.lantern, 0, -0.16, 0, 0.5);
-    this.light = new THREE.PointLight('#ffbe75', 1.6, 3.5, 1.6);
-    this.light.position.set(0, -0.16, 0);
-    this.lantern.add(this.light);
     const blobGeo = new THREE.CircleGeometry(0.32, 20); blobGeo.rotateX(-Math.PI / 2);
     const blob = new THREE.Mesh(blobGeo, new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.24, depthWrite: false }));
     blob.position.y = 0.03;
@@ -126,9 +116,7 @@ export class Explorer {
     animateFigure(this.fig, { walking, phase: this.step, amp: this.stride > 13 ? 1.25 : 1, t: this.clock });
     if (walking) this.fig.torso.rotation.x = this.stride > 13 ? 0.12 : 0.04;
     else this.fig.torso.rotation.x *= 0.9;
-    this.lantern.rotation.x = -(this.fig.arms[1].rotation.x) * 0.9;
     this.manualMoving = false;
-    this.light.intensity = 1.5 + Math.sin(this.clock * 13) * 0.12 + Math.sin(this.clock * 7.3) * 0.1;
     this.#sync();
   }
 

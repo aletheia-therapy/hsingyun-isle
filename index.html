@@ -29,7 +29,12 @@
       <p class="home-eyebrow">FO GUANG WISDOM ISLAND</p>
       <h1 id="home-title" class="home-title">星雲之島</h1>
       <p class="home-sub">三好四給・AI 互動實踐島</p>
-      <p class="home-lede">島上住著七位需要幫忙的島民。<br>用自己的腳走過去，<b>看</b>看發生了什麼事、<b>聽</b>聽他們的心聲，<b>動手</b>幫上一把，再和 AI 一起想想：回到生活裡，你會怎麼做？<br>每做一件好事，島就亮起一角。</p>
+      <p class="home-lede">這是一座練習「三好四給」的島。<br>島上有七位遇到困難的島民，你要走過去<b>看</b>看發生什麼事、<b>聽</b>聽他們說話、<b>動手</b>幫忙，再選一選：回到生活裡，你會怎麼做？<br>每幫一位，就學會一種好的做法；最後登上山頂，許一個願。</p>
+      <ol class="home-how" aria-label="怎麼玩">
+        <li><b>1</b><span>看畫面上方的<br>「目前目標」</span></li>
+        <li><b>2</b><span>跟著地上的<br>金色箭頭走</span></li>
+        <li><b>3</b><span>走到人物旁<br><span class="k-desk">按 Enter 說話</span><span class="k-touch">點按鈕說話</span></span></li>
+      </ol>
       <div class="home-actions">
         <button type="button" id="enter-btn" class="btn btn-primary btn-lg">進入島嶼</button>
         <button type="button" id="home-ai" class="btn btn-ghost btn-lg"><span class="ai-dot" aria-hidden="true"></span>AI 智慧導覽</button>
@@ -59,7 +64,7 @@
   </header>
 
   <nav id="places" class="places" aria-label="島上五大區域">
-    <div class="places-head">
+    <div class="places-head" role="button" tabindex="0" aria-label="展開或收合善念地圖">
       <span class="places-title">善念地圖</span>
       <span class="places-progress"><b id="progress">0</b> / <span id="progress-total">13</span></span>
     </div>
@@ -70,14 +75,18 @@
     </div>
     <div id="level" class="level"></div>
     <div id="zone-list" class="zone-list"></div>
-    <p class="places-foot">點一個地點設為導航目的地，再跟著旅人頭上的金色箭頭走。島嶼光明度會隨著你的善行增加。</p>
+    <p class="places-foot">照著畫面上方的「目前目標」走就可以完成全部。想先去別的地方，也可以點上面的地點。</p>
   </nav>
 
+  <div id="objective" class="objective" role="status" aria-live="polite">
+    <i class="ob-arrow" aria-hidden="true" hidden></i>
+    <div class="ob-text"></div>
+  </div>
   <div id="hint" class="hint" role="status"></div>
-  <div id="quest-bar" class="quest-bar" role="status" hidden></div>
   <button type="button" id="prompt" class="prompt" hidden></button>
   <div id="joystick" class="joystick" hidden aria-hidden="true"><i></i></div>
   <button type="button" id="music-btn" class="voice-btn music-btn" aria-pressed="true"><span>音樂：開</span></button>
+  <button type="button" id="help-btn" class="help-btn" aria-label="怎麼玩"><span>?</span>怎麼玩</button>
   <button type="button" id="run-btn" class="run-btn" aria-pressed="false"><kbd>R</kbd><span>奔跑</span></button>
 
   <button type="button" id="ai-fab" class="ai-fab" aria-label="開啟 AI 導覽">
@@ -96,6 +105,26 @@
     </div>
   </div>
 
+  <!-- 第一次上島：這座島在做什麼、怎麼玩 -->
+  <div id="intro" class="intro" hidden>
+    <div class="intro-box" role="dialog" aria-modal="true" aria-labelledby="intro-title">
+      <p class="intro-eyebrow">歡迎上島</p>
+      <h2 id="intro-title">你的任務：幫助島上七位島民</h2>
+      <p class="intro-lede">每位島民都遇到一點困難。幫助他們的過程，就是在練習星雲大師提倡的「三好四給」：</p>
+      <div class="intro-virtues">
+        <div><b>三好</b><span>做好事・說好話・存好心</span></div>
+        <div><b>四給</b><span>給人信心・給人歡喜・給人希望・給人方便</span></div>
+      </div>
+      <ol class="intro-steps">
+        <li><i>1</i><div><b>看畫面上方</b><span>「目前目標」永遠告訴你下一步要做什麼</span></div></li>
+        <li><i>2</i><div><b>跟著地上的金色箭頭</b><span>箭頭會帶你走到發光的光柱，人物頭上有名字</span></div></li>
+        <li><i>3</i><div><b class="k-desk">走到人物旁邊，按 Enter</b><b class="k-touch">走到人物旁邊，點畫面下方的按鈕</b><span>聽他說話、幫忙、選一選、玩小遊戲，得到善念值與徽章</span></div></li>
+      </ol>
+      <p class="intro-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵走路・<kbd>R</kbd> 奔跑・拖曳畫面轉視角・滾輪縮放</p>
+      <p class="intro-keys intro-touch">左下角搖桿走路・拖曳畫面轉視角・雙指縮放</p>
+      <button type="button" class="btn btn-primary btn-lg intro-go">知道了，出發！</button>
+    </div>
+  </div>
   <div id="levelup" class="levelup" hidden></div>
   <div id="breath" class="breath" hidden><i></i><b>吸氣……</b><small></small><span>站著不動，跟著光圈慢慢呼吸</span></div>
   <div id="loading" class="loading" role="status"><span class="loading-dot"></span>島嶼浮現中……</div>

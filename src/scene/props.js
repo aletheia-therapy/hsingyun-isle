@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { TEX, triplanar, rand as xrand } from './textures.js';
 
 /**
  * 星雲之島的建築與植物。每個建造函式在原點、地面高度 0 建模，正面朝 +z。
@@ -47,25 +49,36 @@ const latticeTex = canvasTex(64, 64, (x, w, h) => {
   for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { x.beginPath(); x.moveTo(i * 16 + 8, j * 16); x.lineTo(i * 16 + 8, j * 16 + 16); x.moveTo(i * 16, j * 16 + 8); x.lineTo(i * 16 + 16, j * 16 + 8); x.stroke(); }
 }, [1, 1]);
 
+// 石材、灰泥、木頭用世界座標的三平面投影貼圖：大小不同的構件紋理尺度一致
+const tri = (color, tex, scale, key, rough = 0.95) => triplanar(new THREE.MeshStandardMaterial({ color, map: tex, roughness: rough }), scale, key);
+const MATS = {
+  stone: tri('#dcd5c4', TEX.ashlar, 0.62, 'tri-a'),
+  stoneDk: tri('#aaa392', TEX.ashlar, 0.62, 'tri-a'),
+  wall: tri('#f3ecdd', TEX.plaster, 0.45, 'tri-p'),
+  wood: tri('#8c6c4e', TEX.wood, 1.1, 'tri-w', 0.9),
+  woodDk: tri('#5b4535', TEX.wood, 1.1, 'tri-w', 0.9),
+  pillar: tri('#9c4a35', TEX.wood, 0.9, 'tri-w', 0.75),
+};
 export const M = {
-  stone: () => mat('#cfc7b4', { r: 0.95 }),
-  stoneDk: () => mat('#a39c8b', { r: 0.95 }),
-  wall: () => mat('#efe6cf', { r: 0.95 }),
-  pillar: () => mat('#9a4733', { r: 0.7 }),
-  beam: () => mat('#5f6f66', { r: 0.8 }),
-  wood: () => mat('#7a5a3e', { r: 0.9 }),
-  woodDk: () => mat('#4a3424', { r: 0.9 }),
+  stone: () => MATS.stone,
+  stoneDk: () => MATS.stoneDk,
+  wall: () => MATS.wall,
+  pillar: () => MATS.pillar,
+  beam: () => mat('#56665e', { r: 0.8 }),
+  wood: () => MATS.wood,
+  woodDk: () => MATS.woodDk,
   door: () => mat('#ffffff', { r: 0.85, map: latticeTex }),
-  roofGold: () => mat('#b99446', { r: 0.6, m: 0.15, map: tileTex, side: THREE.DoubleSide }),
-  roofJade: () => mat('#5f8a7c', { r: 0.65, map: tileTex, side: THREE.DoubleSide }),
-  roofSlate: () => mat('#5d6866', { r: 0.7, map: tileTex, side: THREE.DoubleSide }),
-  ridge: () => mat('#4a4f4c', { r: 0.7 }),
-  gold: () => mat('#c9a24c', { r: 0.35, m: 0.6, e: '#4a3208', ei: 0.25 }),
-  bronze: () => mat('#7d6a3e', { r: 0.4, m: 0.7 }),
-  lamp: () => mat('#fff0c8', { e: '#ffc070', ei: 1.4 }),
-  paper: () => mat('#fbeccb', { e: '#ffb862', ei: 0.65 }),
+  roofGold: () => mat('#a88a4c', { r: 0.62, m: 0.1, map: tileTex, side: THREE.DoubleSide }),
+  roofJade: () => mat('#56786c', { r: 0.68, map: tileTex, side: THREE.DoubleSide }),
+  roofSlate: () => mat('#56605e', { r: 0.72, map: tileTex, side: THREE.DoubleSide }),
+  ridge: () => mat('#454a47', { r: 0.7 }),
+  gold: () => mat('#b8964c', { r: 0.4, m: 0.55 }),
+  bronze: () => mat('#6f5f3c', { r: 0.45, m: 0.65 }),
+  lamp: () => mat('#eadcc0', { r: 0.9 }),
+  lampLit: () => mat('#fff0c8', { e: '#ffb050', ei: 1.6 }),
+  paper: () => mat('#f2e2c2', { e: '#ffb862', ei: 0.12 }),
   dark: () => mat('#2b2620', { r: 1 }),
-  water: () => mat('#cfe6dc', { r: 0.2, op: 0.55 }),
+  water: () => mat('#4e6a5e', { r: 0.15, op: 0.8 }),
 };
 
 function add(g, geo, material, x = 0, y = 0, z = 0, ry = 0) {
@@ -197,13 +210,11 @@ export function lantern(g, x, y, z, s = 1, light = true) {
   box(g, 0.2 * s, 0.22 * s, 0.2 * s, light ? M.lamp() : M.stone(), x, y + 0.72 * s, z);
   add(g, new THREE.ConeGeometry(0.24 * s, 0.18 * s, 6), M.stoneDk(), x, y + 1.03 * s, z);
   sphere(g, 0.04 * s, M.stone(), x, y + 1.14 * s, z, 0);
-  if (light) glow(g, x, y + 0.83 * s, z, 0.9 * s);
 }
 function paperLamp(g, x, y, z, s = 1) {
   cyl(g, 0.006, 0.006, 0.25 * s, M.dark(), x, y + 0.28 * s, z, 4);
   add(g, new THREE.SphereGeometry(0.15 * s, 12, 8).scale(1, 1.25, 1), M.paper(), x, y + 0.1 * s, z);
   cyl(g, 0.09 * s, 0.09 * s, 0.03 * s, mat('#a63a2c'), x, y - 0.1 * s, z, 10);
-  glow(g, x, y + 0.1 * s, z, 0.85 * s);
 }
 function bench(g, x, z, ry = 0, w = 1.2) {
   const b = new THREE.Group(); b.position.set(x, 0, z); b.rotation.y = ry; g.add(b);
@@ -314,7 +325,6 @@ export const BUILD = {
     // 中庭：石燈與一株小松
     lantern(g, -0.9, 0.2, 0.9, 0.9); lantern(g, 0.9, 0.2, -0.9, 0.9, false);
     cyl(g, 0.5, 0.55, 0.32, M.stoneDk(), 0, 0.2, 0, 16);
-    pine(g, 0, 0.5, 0, 0.55, 7);
   },
 
   /** 善念實踐園的亭子：攢尖頂、坐凳欄杆，匾額顏色代表三好或四給 */
@@ -436,166 +446,133 @@ export function pagoda(g, s = 1) {
   return y + 1.3 * s;
 }
 
-/** 拱橋 */
+/** 石拱橋：石塊拱面、石欄杆與欄柱 */
 export function archBridge(g, len = 4, w = 1.3) {
   const n = 14, pts = [];
-  for (let i = 0; i <= n; i++) { const t = i / n; pts.push([-len / 2 + t * len, Math.sin(t * Math.PI) * 0.7]); }
+  const arcY = (t) => Math.sin(t * Math.PI) * 0.7;
+  for (let i = 0; i <= n; i++) { const t = i / n; pts.push([-len / 2 + t * len, arcY(t)]); }
   for (let i = 0; i < n; i++) {
     const [x0, y0] = pts[i], [x1, y1] = pts[i + 1];
-    const seg = add(g, new THREE.BoxGeometry(Math.hypot(x1 - x0, y1 - y0) + 0.02, 0.16, w), M.stone(), (x0 + x1) / 2, (y0 + y1) / 2 + 0.3, 0);
-    seg.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+    const L = Math.hypot(x1 - x0, y1 - y0) + 0.02, a = Math.atan2(y1 - y0, x1 - x0);
+    const seg = add(g, new THREE.BoxGeometry(L, 0.18, w), M.stone(), (x0 + x1) / 2, (y0 + y1) / 2 + 0.3, 0);
+    seg.rotation.z = a;
+    const under = add(g, new THREE.BoxGeometry(L, 0.22, w - 0.2), M.stoneDk(), (x0 + x1) / 2, (y0 + y1) / 2 + 0.12, 0);
+    under.rotation.z = a;
     for (const s of [-1, 1]) {
-      const r = add(g, new THREE.BoxGeometry(Math.hypot(x1 - x0, y1 - y0) + 0.02, 0.24, 0.08), M.stoneDk(), (x0 + x1) / 2, (y0 + y1) / 2 + 0.5, s * (w / 2 - 0.04));
-      r.rotation.z = seg.rotation.z;
+      const r = add(g, new THREE.BoxGeometry(L, 0.07, 0.12), M.stone(), (x0 + x1) / 2, (y0 + y1) / 2 + 0.78, s * (w / 2 - 0.06));
+      r.rotation.z = a;
+      const p = add(g, new THREE.BoxGeometry(L - 0.06, 0.32, 0.06), M.stoneDk(), (x0 + x1) / 2, (y0 + y1) / 2 + 0.56, s * (w / 2 - 0.06));
+      p.rotation.z = a;
+    }
+  }
+  for (let i = 0; i <= n; i += 2) {
+    const [x, y] = pts[i];
+    for (const s of [-1, 1]) {
+      box(g, 0.13, 0.62, 0.13, M.stone(), x, y + 0.3, s * (w / 2 - 0.06));
+      add(g, new THREE.ConeGeometry(0.09, 0.12, 4), M.stoneDk(), x, y + 0.98, s * (w / 2 - 0.06)).rotation.y = Math.PI / 4;
     }
   }
 }
 
-/* ---------- 植物與山石 ---------- */
-function rng(seed) { let s = seed * 9301 + 49297; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
-const L = {
-  pine: () => mat('#2c4f34', { r: 0.95 }), pine2: () => mat('#38603e', { r: 0.95 }),
-  leaf: () => mat('#4e7a3c', { r: 0.95 }), leaf2: () => mat('#6a8f45', { r: 0.95 }), leaf3: () => mat('#3f6a42', { r: 0.95 }),
-  maple: () => mat('#b5652f', { r: 0.95 }), maple2: () => mat('#c99440', { r: 0.95 }),
-  plum: () => mat('#e9b7c3', { r: 0.85 }), plum2: () => mat('#f3d6dc', { r: 0.85 }),
-  bark: () => mat('#4c3c30', { r: 1 }), barkLight: () => mat('#76695a', { r: 1 }),
-  bamboo: () => mat('#7c9a52', { r: 0.7 }), bambooLeaf: () => mat('#5f8b43', { r: 0.9, side: THREE.DoubleSide }),
-  rock: () => mat('#8f8d82', { r: 1, flat: true }), rock2: () => mat('#a9a598', { r: 1, flat: true }),
-  grass: () => mat('#6f9650', { r: 1, side: THREE.DoubleSide }), grass2: () => mat('#8aa85e', { r: 1, side: THREE.DoubleSide }),
-  lotusPad: () => mat('#4f8a4c', { r: 0.8, side: THREE.DoubleSide }), lotus: () => mat('#f2c4cf', { r: 0.7 }),
-};
-
-const crowns = [];
-function crown(seed) {
-  const k = seed % 6;
-  if (!crowns[k]) {
-    const g = new THREE.IcosahedronGeometry(1, 2);
-    const p = g.attributes.position, r = rng(k * 31 + 7), v = new THREE.Vector3();
-    const f = [r() * 6, r() * 6, r() * 6];
-    for (let i = 0; i < p.count; i++) {
-      v.fromBufferAttribute(p, i);
-      const n = 1 + 0.16 * Math.sin(v.x * 3.1 + f[0]) * Math.cos(v.y * 2.7 + f[1]) + 0.1 * Math.sin(v.z * 4.3 + f[2]) + (r() - 0.5) * 0.08;
-      p.setXYZ(i, v.x * n, v.y * n * 0.92, v.z * n);
-    }
-    g.computeVertexNormals();
-    crowns[k] = g;
+/* ---------- 山石與水生植物 ---------- */
+const ROCK = triplanar(new THREE.MeshLambertMaterial({ map: TEX.rock, vertexColors: true }), 0.9, 'tri-r');
+const rockShapes = [];
+function rockShape(k) {
+  if (rockShapes[k]) return rockShapes[k];
+  let g = new THREE.IcosahedronGeometry(1, 3);
+  g.deleteAttribute('uv'); g.deleteAttribute('normal');
+  g = mergeVertices(g);                                         // 共用頂點，法線才會平滑
+  const p = g.attributes.position, r = xrand(k * 97 + 13), v = new THREE.Vector3();
+  const f = [r() * 6, r() * 6, r() * 6, r() * 6];
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    let n = 1 + 0.18 * Math.sin(v.x * 2.3 + f[0]) * Math.cos(v.z * 2.1 + f[1]) + 0.1 * Math.sin(v.y * 4.1 + f[2]) + 0.05 * Math.sin((v.x + v.z) * 6.3 + f[3]) + 0.025 * Math.sin(v.x * 13 + v.y * 11);
+    if (v.y < -0.2) n *= 0.92;                                  // 底部較平，坐得穩
+    p.setXYZ(i, v.x * n, Math.max(-0.55, v.y * n), v.z * n);
   }
-  return crowns[k];
+  return (rockShapes[k] = g);
 }
-
-/** 松：彎曲的樹幹與數層扁平的松針雲 */
-export function pine(g, x, y, z, s = 1, seed = 1) {
-  const r = rng(seed);
-  const lean = (r() - 0.5) * 0.5;
-  const t = add(g, new THREE.CylinderGeometry(0.08 * s, 0.17 * s, 2.4 * s, 7), L.bark(), x + lean * 0.6 * s, y + 1.2 * s, z);
-  t.rotation.z = -lean * 0.4;
-  const layers = 3 + Math.floor(r() * 2);
-  for (let i = 0; i < layers; i++) {
-    const h = y + (1.3 + i * 0.55) * s, rr = (1.15 - i * 0.2) * s;
-    const ox = (r() - 0.5) * 0.7 * s + lean * (0.4 + i * 0.3) * s, oz = (r() - 0.5) * 0.7 * s;
-    const p = add(g, crown(seed + i), i % 2 ? L.pine2() : L.pine(), x + ox, h, z + oz);
-    p.scale.set(rr, rr * 0.4, rr * (0.85 + r() * 0.3)); p.rotation.y = r() * 6;
+/** 山石：自然起伏的石塊，朝上的面長青苔 */
+export function boulder(g, x, y, z, s = 1, seed = 1, { tall = 0.65, wet = false } = {}) {
+  const r = xrand(seed * 31 + 7);
+  const geo = rockShape(seed % 6).clone();
+  const sx = s * (1 + r() * 0.4), sy = s * tall * (0.85 + r() * 0.3), sz = s * (0.85 + r() * 0.35), ry = r() * 6.28;
+  geo.scale(sx, sy, sz); geo.rotateY(ry); geo.computeVertexNormals();
+  const n = geo.attributes.normal, p = geo.attributes.position, col = new Float32Array(p.count * 3);
+  const base = new THREE.Color(wet ? '#8a857a' : '#aaa497'), moss = new THREE.Color('#66763f'), c = new THREE.Color();
+  const tone = 0.9 + r() * 0.2;
+  for (let i = 0; i < p.count; i++) {
+    const up = n.getY(i), hy = p.getY(i) / Math.max(0.01, sy);
+    c.copy(base).multiplyScalar(tone * (0.82 + 0.18 * Math.sin(p.getX(i) * 5 + p.getZ(i) * 3)));
+    if (!wet && up > 0.5) c.lerp(moss, Math.min(1, (up - 0.5) * 2.2) * 0.75);
+    if (hy < -0.25) c.multiplyScalar(0.75);                    // 貼地處較暗
+    col.set([c.r, c.g, c.b], i * 3);
   }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const m = new THREE.Mesh(geo, ROCK); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; g.add(m);
+  return m;
 }
-/** 闊葉樹：圓潤的樹冠（可選秋色） */
-export function roundTree(g, x, y, z, s = 1, seed = 1, autumn = false) {
-  const r = rng(seed);
-  add(g, new THREE.CylinderGeometry(0.09 * s, 0.15 * s, 1.5 * s, 6), L.barkLight(), x, y + 0.75 * s, z);
-  const mats = autumn ? [L.maple(), L.maple2()] : [L.leaf(), L.leaf2(), L.leaf3()];
-  for (let i = 0; i < 4; i++) {
-    const k = 0.75 * s * (0.75 + r() * 0.45);
-    const p = add(g, crown(seed * 3 + i), mats[i % mats.length], x + (r() - 0.5) * 0.9 * s, y + (1.75 + r() * 0.7) * s, z + (r() - 0.5) * 0.9 * s);
-    p.scale.set(k, k * 0.82, k); p.rotation.y = r() * 6;
-  }
-}
-/** 梅：枝幹虬曲、粉白的花團 */
-export function plum(g, x, y, z, s = 1, seed = 1) {
-  const r = rng(seed);
-  add(g, new THREE.CylinderGeometry(0.06 * s, 0.11 * s, 1.1 * s, 6), L.bark(), x, y + 0.55 * s, z);
-  for (let i = 0; i < 4; i++) {
-    const a = r() * Math.PI * 2, l = (0.5 + r() * 0.5) * s;
-    const br = add(g, new THREE.CylinderGeometry(0.025 * s, 0.05 * s, l, 5), L.bark(), x + Math.cos(a) * l * 0.35, y + (1.1 + r() * 0.3) * s, z + Math.sin(a) * l * 0.35);
-    br.rotation.set(Math.sin(a) * 0.8, 0, -Math.cos(a) * 0.8);
-    for (let k = 0; k < 2; k++) sphere(g, (0.24 + r() * 0.12) * s, k ? L.plum2() : L.plum(), x + Math.cos(a) * l * (0.6 + k * 0.2), y + (1.35 + r() * 0.35) * s, z + Math.sin(a) * l * (0.6 + k * 0.2), 1);
-  }
-}
-/** 竹叢 */
-export function bamboo(g, x, y, z, s = 1, seed = 1) {
-  const r = rng(seed);
-  const n = 5 + Math.floor(r() * 4);
-  for (let i = 0; i < n; i++) {
-    const ox = (r() - 0.5) * 0.9 * s, oz = (r() - 0.5) * 0.9 * s, h = (2.2 + r() * 1.4) * s;
-    const c = add(g, new THREE.CylinderGeometry(0.035 * s, 0.045 * s, h, 5), L.bamboo(), x + ox, y + h / 2, z + oz);
-    c.rotation.z = (r() - 0.5) * 0.12; c.rotation.x = (r() - 0.5) * 0.12;
-    for (let k = 0; k < 3; k++) {
-      const lf = add(g, new THREE.IcosahedronGeometry(0.32 * s, 0), L.bambooLeaf(), x + ox + (r() - 0.5) * 0.4 * s, y + h * (0.65 + k * 0.13), z + oz + (r() - 0.5) * 0.4 * s);
-      lf.scale.set(1.2, 0.35, 0.8);
-    }
-  }
-}
-export function shrub(g, x, y, z, s = 1, seed = 1) {
-  const r = rng(seed);
-  for (let i = 0; i < 3; i++) sphere(g, (0.3 + r() * 0.2) * s, r() > 0.5 ? L.leaf() : L.leaf3(), x + (r() - 0.5) * 0.5 * s, y + 0.22 * s, z + (r() - 0.5) * 0.5 * s, 1).scale.y = 0.75;
-}
-/** 太湖石：多孔的直立山石 */
+/** 太湖石：直立、層層堆疊的山石 */
 export function scholarRock(g, x, y, z, s = 1, seed = 1) {
-  const r = rng(seed);
-  for (let i = 0; i < 3; i++) {
-    const p = add(g, new THREE.IcosahedronGeometry(0.35 * s, 0), i % 2 ? L.rock2() : L.rock(), x + (r() - 0.5) * 0.3 * s, y + (0.3 + i * 0.4) * s, z + (r() - 0.5) * 0.3 * s);
-    p.scale.set(1 - i * 0.15, 1.3, 0.8); p.rotation.set(r() * 3, r() * 3, r() * 3);
-  }
+  boulder(g, x, y + 0.25 * s, z, 0.55 * s, seed, { tall: 1.1 });
+  boulder(g, x + 0.08 * s, y + 0.95 * s, z - 0.05 * s, 0.4 * s, seed + 1, { tall: 1.25 });
+  boulder(g, x - 0.06 * s, y + 1.45 * s, z + 0.04 * s, 0.26 * s, seed + 2, { tall: 1.3 });
 }
-export function boulder(g, x, y, z, s = 1, seed = 1, material = L.rock()) {
-  const p = add(g, new THREE.DodecahedronGeometry(s, 0), material, x, y, z);
-  const r = rng(seed); p.scale.set(1 + r() * 0.4, 0.6 + r() * 0.3, 1 + r() * 0.3); p.rotation.y = r() * 3;
-}
-export function tuft(g, x, y, z, s = 1, seed = 1) {
-  const r = rng(seed);
-  for (let i = 0; i < 3; i++) {
-    const b = add(g, new THREE.ConeGeometry(0.05 * s, 0.38 * s, 3), i % 2 ? L.grass() : L.grass2(), x + (r() - 0.5) * 0.2 * s, y + 0.17 * s, z + (r() - 0.5) * 0.2 * s);
-    b.rotation.set((r() - 0.5) * 0.6, r() * 3, (r() - 0.5) * 0.6); b.castShadow = false;
-  }
-}
+
+const L = {
+  lotusPad: () => mat('#3f6b3a', { r: 0.6, side: THREE.DoubleSide }), lotusPad2: () => mat('#4d7a40', { r: 0.6, side: THREE.DoubleSide }),
+  lotus: () => mat('#f0c6cf', { r: 0.7 }),
+};
 export function lotus(g, x, y, z, seed = 1) {
-  const r = rng(seed);
-  const pad = add(g, new THREE.CircleGeometry(0.32 + r() * 0.15, 12, 0.3, Math.PI * 1.85), L.lotusPad(), x, y, z);
+  const r = xrand(seed * 11 + 5);
+  const pad = add(g, new THREE.CircleGeometry(0.3 + r() * 0.18, 16, 0.3, Math.PI * 1.86), r() > 0.5 ? L.lotusPad() : L.lotusPad2(), x, y, z);
   pad.rotation.x = -Math.PI / 2; pad.rotation.z = r() * 6; pad.castShadow = false;
-  if (r() > 0.55) {
-    const f = add(g, new THREE.ConeGeometry(0.11, 0.2, 6, 1, true), L.lotus(), x + 0.05, y + 0.14, z);
-    f.rotation.x = Math.PI;
-  }
-}
-
-/** 花圃：一叢叢低矮的花（粉、白、黃、紫），點綴步道兩旁 */
-const FLOWER = ['#f2b8c6', '#ffffff', '#f6d36b', '#c9a6e0', '#f4a68c', '#fbe3ea'];
-export function flowerBed(g, x, y, z, s = 1, seed = 1) {
-  const r = rng(seed);
-  const leaf = r() > 0.5 ? L.leaf() : L.leaf3();
-  const base = add(g, new THREE.IcosahedronGeometry(0.42 * s, 1), leaf, x, y + 0.12 * s, z);
-  base.scale.set(1.25, 0.42, 1); base.castShadow = false;
-  const c1 = FLOWER[Math.floor(r() * FLOWER.length)], c2 = FLOWER[Math.floor(r() * FLOWER.length)];
-  for (let i = 0; i < 7; i++) {
-    const a = r() * Math.PI * 2, d = r() * 0.42 * s;
-    const f = add(g, new THREE.IcosahedronGeometry((0.07 + r() * 0.05) * s, 0), mat(i % 3 ? c1 : c2, { r: 0.7 }), x + Math.cos(a) * d, y + (0.26 + r() * 0.1) * s, z + Math.sin(a) * d * 0.8);
-    f.castShadow = false;
-  }
-}
-
-/** 木橋：跨過小溪，兩側有扶手 */
-export function woodBridge(g, len = 5, w = 1.8) {
-  const n = Math.round(len / 0.32);
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1), x = -len / 2 + t * len, y = Math.sin(t * Math.PI) * 0.35;
-    box(g, 0.28, 0.08, w, M.wood(), x, y, 0);
-  }
-  for (const sz of [-1, 1]) {
-    for (let i = 0; i <= 4; i++) { const t = i / 4, x = -len / 2 + t * len, y = Math.sin(t * Math.PI) * 0.35; cyl(g, 0.045, 0.05, 0.75, M.woodDk(), x, y, sz * (w / 2 - 0.05), 6); }
-    for (let i = 0; i < 8; i++) {
-      const t0 = i / 8, t1 = (i + 1) / 8, x0 = -len / 2 + t0 * len, x1 = -len / 2 + t1 * len;
-      const y0 = Math.sin(t0 * Math.PI) * 0.35 + 0.72, y1 = Math.sin(t1 * Math.PI) * 0.35 + 0.72;
-      const rail = add(g, new THREE.BoxGeometry(Math.hypot(x1 - x0, y1 - y0) + 0.02, 0.06, 0.06), M.wood(), (x0 + x1) / 2, (y0 + y1) / 2, sz * (w / 2 - 0.05));
-      rail.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+  if (r() > 0.6) {
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2, p = add(g, new THREE.SphereGeometry(0.06, 8, 6).scale(0.55, 0.4, 1.3), L.lotus(), x + 0.05 + Math.cos(a) * 0.04, y + 0.1, z + Math.sin(a) * 0.04);
+      p.rotation.set(0.7, -a + Math.PI / 2, 0); p.castShadow = false;
     }
-    for (const ex of [-len / 2, len / 2]) cyl(g, 0.09, 0.1, 0.9, M.woodDk(), ex, -0.6, sz * (w / 2 + 0.05), 6);
+  }
+}
+
+/** 木橋：跨過小溪。木板一片片鋪在兩根拱形大樑上，兩側有欄柱與扶手 */
+const PLANK = [mat('#9a8468', { r: 0.92, map: TEX.wood }), mat('#86705a', { r: 0.92, map: TEX.wood }), mat('#a8957a', { r: 0.92, map: TEX.wood })];
+export function woodBridge(g, len = 5, w = 1.8) {
+  const r = xrand(Math.round(len * 100));
+  const arc = (t) => Math.sin(t * Math.PI) * 0.35;
+  const at = (x) => arc(x / len + 0.5);
+  // 兩根拱樑
+  const segs = 10;
+  for (const sz of [-1, 1]) for (let i = 0; i < segs; i++) {
+    const x0 = -len / 2 + (i / segs) * len, x1 = -len / 2 + ((i + 1) / segs) * len, y0 = at(x0), y1 = at(x1);
+    const b = add(g, new THREE.BoxGeometry(Math.hypot(x1 - x0, y1 - y0) + 0.03, 0.2, 0.14), M.woodDk(), (x0 + x1) / 2, (y0 + y1) / 2 - 0.14, sz * (w / 2 - 0.28));
+    b.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+  }
+  // 木板
+  const n = Math.floor(len / 0.27);
+  for (let i = 0; i < n; i++) {
+    const x = -len / 2 + (i + 0.5) * (len / n), y = at(x);
+    const p = add(g, new THREE.BoxGeometry(0.235, 0.06, w + (r() - 0.5) * 0.08), PLANK[Math.floor(r() * 3)], x, y - 0.03 + (r() - 0.5) * 0.012, (r() - 0.5) * 0.05);
+    p.rotation.z = Math.atan2(at(x + 0.1) - at(x - 0.1), 0.2) + (r() - 0.5) * 0.02;
+    p.rotation.y = (r() - 0.5) * 0.03;
+  }
+  // 欄柱與扶手
+  const posts = Math.max(3, Math.round(len / 1.1));
+  for (const sz of [-1, 1]) {
+    for (let i = 0; i <= posts; i++) {
+      const x = -len / 2 + (i / posts) * len * 0.98 + len * 0.01, y = at(x), end = i === 0 || i === posts;
+      box(g, end ? 0.13 : 0.09, end ? 0.95 : 0.82, end ? 0.13 : 0.09, M.woodDk(), x, y, sz * (w / 2 - 0.06));
+      box(g, end ? 0.17 : 0.12, 0.04, end ? 0.17 : 0.12, M.wood(), x, y + (end ? 0.95 : 0.82), sz * (w / 2 - 0.06));
+    }
+    for (let i = 0; i < posts; i++) {
+      const x0 = -len / 2 + (i / posts) * len * 0.98 + len * 0.01, x1 = -len / 2 + ((i + 1) / posts) * len * 0.98 + len * 0.01;
+      for (const [h, t] of [[0.78, 0.07], [0.4, 0.045]]) {
+        const y0 = at(x0) + h, y1 = at(x1) + h;
+        const rail = add(g, new THREE.CylinderGeometry(t / 2, t / 2, Math.hypot(x1 - x0, y1 - y0), 8), M.wood(), (x0 + x1) / 2, (y0 + y1) / 2, sz * (w / 2 - 0.06));
+        rail.rotation.z = Math.atan2(y1 - y0, x1 - x0) - Math.PI / 2;
+      }
+    }
+    // 橋頭的石座
+    for (const ex of [-len / 2, len / 2]) rbox(g, 0.6, 0.5, 0.5, M.stoneDk(), ex - Math.sign(ex) * 0.1, -0.55, sz * (w / 2 - 0.1), 0.05);
   }
 }

@@ -31,7 +31,8 @@ export function hillAt(x, z) {
 }
 
 /** 林間小溪：從西北山腳蜿蜒流向南方的海 */
-export const streamX = (z) => -6 * S + 4.2 * S * Math.sin(z / (6 * S) + 0.6) + 2 * S * Math.sin(z / (2.6 * S));
+/** 小溪走在主峰的西側（不切過登頂石階） */
+export const streamX = (z) => -7.5 * S + 2.0 * S * Math.sin(z / (6 * S) + 0.6) + 1.2 * S * Math.sin(z / (2.6 * S));
 export function streamAt(x, z) {
   if (z < -16 * S || z > 31 * S) return 0;
   const d = Math.abs(x - streamX(z));
@@ -68,7 +69,7 @@ const PADS = [
 ];
 for (const p of PADS) p.h = rawHeight(p.x, p.z);
 
-export function heightAt(x, z) {
+function baseHeight(x, z) {
   let h = rawHeight(x, z);
   for (const p of PADS) {
     const w = ss(p.r + 2.2, p.r, Math.hypot(x - p.x, z - p.z));
@@ -81,12 +82,35 @@ export function heightAt(x, z) {
   return h - pond;
 }
 
+/**
+ * 登頂石階：從環山步道南側筆直上到願行台。石階底下的地形墊成一道平順的土堤（兩側是長草的斜坡），
+ * 旅人沿著坡面走，石階本身由 paths.js 畫出。
+ */
+export const STAIR = { x: 0, z0: 7.6 * S, z1: -0.5 * S, hw: 1.15 };
+STAIR.h0 = baseHeight(STAIR.x, STAIR.z0);
+STAIR.h1 = baseHeight(STAIR.x, STAIR.z1);
+/** 石階中心線在 t（0 = 底、1 = 頂）處的坡面高度 */
+export const stairRamp = (t) => STAIR.h0 + (STAIR.h1 - STAIR.h0) * Math.min(1, Math.max(0, t));
+
+export function heightAt(x, z) {
+  const h = baseHeight(x, z);
+  const { x: sx, z0, z1, hw } = STAIR;
+  if (z > z0 + 0.5 || z < z1 - 0.3) return h;
+  const t = (z0 - z) / (z0 - z1);
+  const d = Math.max(0, Math.abs(x - sx) - hw - 0.4);
+  const berm = stairRamp(t) - d * 0.85;
+  return Math.max(h, berm);
+}
+
 function noise2(x, z) {
   return 0.5 + 0.25 * Math.sin(x * 0.9 + z * 0.4) * Math.cos(z * 0.8 - x * 0.3) + 0.25 * Math.sin(x * 2.3 - z * 1.7 + 1.2);
 }
 
-export function createTerrain() {
-  const size = 64 * S * 1.45, seg = 290;
+const TSIZE = 64 * S * 1.45, TSEG = 220;
+
+/** edge(x, z)：到步道邊緣的距離（paths.js 的 edgeField），用來畫出路旁被踩過的草地 */
+export function createTerrain(edge = () => 9) {
+  const size = TSIZE, seg = TSEG;
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -94,36 +118,59 @@ export function createTerrain() {
   geo.computeVertexNormals();
 
   const C = (h) => new THREE.Color(h);
-  // 東方山水：青綠草地、較深的松林地、山石帶一點黛青、岸邊淺沙
-  const grassA = C('#5c8642'), grassB = C('#76974a'), moss = C('#466b3b'), floor = C('#3c5a36');
-  const rock = C('#8d8c7e'), rockDk = C('#6b6c62'), sand = C('#cdbf98'), wetSand = C('#8a7f62'), bank = C('#7d8d5a');
+  // 自然的草地：中綠、偏黃的綠、濕潤的深綠、偏乾的橄欖色；路旁被踩過的土色
+  const grassA = C('#5b7a39'), grassB = C('#788f45'), lush = C('#46652f'), dry = C('#8d8f55');
+  const worn = C('#867c5a'), floor = C('#4b5233');
+  const rock = C('#84817a'), rockDk = C('#64635d'), sand = C('#cbbd99'), wetSand = C('#968969'), bank = C('#66694a');
   const col = new Float32Array(pos.count * 3);
   const c = new THREE.Color(), t = new THREE.Color();
   const nrm = geo.attributes.normal;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const d = islandD(x, z), n = noise2(x, z), hill = hillAt(x, z);
-    c.copy(grassA).lerp(grassB, n);
-    const fl = ss(0.45, 0.78, noise2(x * 0.45 + 9, z * 0.45 - 4));
-    c.lerp(moss, fl * 0.45);
-    c.lerp(floor, ss(0.84, 0.92, d) * 0.2);
-    // 山巒：坡陡處露出灰青山石
+    const d = islandD(x, z), hill = hillAt(x, z);
+    const n1 = noise2(x * 0.35, z * 0.35), n2 = noise2(x * 1.3 + 7, z * 1.3 - 3), n3 = noise2(x * 0.12 - 5, z * 0.12 + 2);
+    c.copy(grassA).lerp(grassB, n1);
+    c.lerp(lush, ss(0.5, 0.8, n3) * 0.6);
+    c.lerp(dry, ss(0.55, 0.85, n2) * 0.35 + ss(1.2, 3.5, hill) * 0.2);
+    c.lerp(floor, ss(0.84, 0.92, d) * 0.25);
+    // 路旁：被踩過的草地與泥土
+    const e = edge(x, z);
+    if (e < 0.9) c.lerp(worn, ss(0.9, -0.1, e) * 0.55);
+    // 山巒：坡陡處露出山石
     const steep = 1 - nrm.getY(i);
-    const rk = Math.max(ss(0.18, 0.42, steep), ss(1.6, 3.2, hill) * ss(0.08, 0.25, steep));
-    if (rk > 0) { t.copy(rock).lerp(rockDk, noise2(x * 1.7, z * 1.7)); c.lerp(t, rk * 0.85); }
+    const rk = Math.max(ss(0.2, 0.45, steep), ss(1.8, 3.4, hill) * ss(0.1, 0.28, steep));
+    if (rk > 0) { t.copy(rock).lerp(rockDk, noise2(x * 1.7, z * 1.7)); c.lerp(t, rk * 0.8); }
     // 岸邊沙灘
     const sd = ss(0.88, 0.95, d);
     if (sd > 0) { t.copy(sand).lerp(wetSand, ss(0.25, -0.2, y)); c.lerp(t, sd); }
     const pd = Math.max(ss(0.15, 0.7, pondAt(x, z)), ss(0, 0.6, streamAt(x, z)));
     if (pd > 0) c.lerp(y < 0.1 ? wetSand : bank, pd * 0.9);
-    c.multiplyScalar(1 - Math.min(0.22, steep * 0.45));
+    c.multiplyScalar((1 - Math.min(0.2, steep * 0.4)) * (0.94 + n2 * 0.08));
     col.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0, map: groundTexture() }));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, map: groundTexture() }));
   mesh.receiveShadow = true;
   mesh.name = 'terrain';
   return mesh;
+}
+
+/** 樹下的地面：顏色變深、偏向林地的落葉土（list = [[x, z, r], ...]） */
+export function shadeGround(mesh, list) {
+  const col = mesh.geometry.attributes.color, step = TSIZE / TSEG, half = TSIZE / 2;
+  const floor = new THREE.Color('#4a4a30'), c = new THREE.Color();
+  for (const [x, z, r] of list) {
+    const c0 = Math.max(0, Math.floor((x - r + half) / step)), c1 = Math.min(TSEG, Math.ceil((x + r + half) / step));
+    const r0 = Math.max(0, Math.floor((z - r + half) / step)), r1 = Math.min(TSEG, Math.ceil((z + r + half) / step));
+    for (let row = r0; row <= r1; row++) for (let cc = c0; cc <= c1; cc++) {
+      const vx = -half + cc * step, vz = -half + row * step, d = Math.hypot(vx - x, vz - z) / r;
+      if (d >= 1) continue;
+      const k = ss(1, 0.25, d), i = row * (TSEG + 1) + cc;
+      c.fromBufferAttribute(col, i).lerp(floor, k * 0.35).multiplyScalar(1 - k * 0.28);
+      col.setXYZ(i, c.r, c.g, c.b);
+    }
+  }
+  col.needsUpdate = true;
 }
 
 /** 地面細節貼圖：細草與小石粒，與頂點色相乘 */
