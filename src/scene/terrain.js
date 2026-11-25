@@ -95,7 +95,7 @@ export function createTerrain() {
 
   const C = (h) => new THREE.Color(h);
   // 東方山水：青綠草地、較深的松林地、山石帶一點黛青、岸邊淺沙
-  const grassA = C('#6d8f4f'), grassB = C('#8aa25a'), moss = C('#4f7346'), floor = C('#3f5f3c');
+  const grassA = C('#5c8642'), grassB = C('#76974a'), moss = C('#466b3b'), floor = C('#3c5a36');
   const rock = C('#8d8c7e'), rockDk = C('#6b6c62'), sand = C('#cdbf98'), wetSand = C('#8a7f62'), bank = C('#7d8d5a');
   const col = new Float32Array(pos.count * 3);
   const c = new THREE.Color(), t = new THREE.Color();

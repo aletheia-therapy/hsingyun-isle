@@ -70,7 +70,7 @@ export class World {
     const scene = this.scene;
 
     /* ---- 光與大氣：清晨的柔光與山間薄霧 ---- */
-    scene.fog = new THREE.Fog('#e6ebe0', 70, 420);
+    scene.fog = new THREE.Fog('#d9e4ea', 90, 560);
     const sky = createSky(SUN_DIR);
     scene.add(sky.mesh); this.animated.push(sky.update);
     scene.add(new THREE.HemisphereLight('#e0ecff', '#8f8a62', 1.55));
@@ -104,6 +104,7 @@ export class World {
       const task = TASKS.find((t) => t.id === s.task);
       BUILD[s.kind](b, { color: task?.color || s.npc?.color });
       const local = new THREE.Box3().setFromObject(b);
+      if (s.kind === 'house' || s.kind === 'pavilion' || s.kind === 'stele') b.scale.setScalar(1.22);
       b.position.set(x, y - 0.04, z);
       b.rotation.y = s.rot || 0;
       statics.add(b);
@@ -251,28 +252,28 @@ export class World {
     const tree = (r) => (x, y, z) => this.circles.push([x, z, r]);
 
     // 松林：山巒、北側與島的外圈
-    place(170, 30000, anywhere(0.2, 0.88), (x, z) => (hillAt(x, z) > 1.6 || z < -14 * S || Math.hypot(x, z) > 25 * S) && inland(x, z) && free(x, z, 2.2) && dry(x, z),
+    place(48, 30000, anywhere(0.2, 0.88), (x, z) => (hillAt(x, z) > 1.6 || z < -14 * S || Math.hypot(x, z) > 25 * S) && inland(x, z) && free(x, z, 4.2) && dry(x, z),
       (x, y, z, i) => { pine(g, x, y - 0.05, z, 1.1 + rand() * 0.9, i + 1); this.circles.push([x, z, 0.45]); });
     // 闊葉林：滿島的樹，東北與西南帶一點秋色
-    place(170, 30000, anywhere(0.12, 0.86), (x, z) => inland(x, z) && free(x, z, 2.4) && hillAt(x, z) < 4 && dry(x, z),
+    place(46, 30000, anywhere(0.12, 0.86), (x, z) => inland(x, z) && free(x, z, 4.5) && hillAt(x, z) < 4 && dry(x, z),
       (x, y, z, i) => { this.circles.push([x, z, 0.35]); roundTree(g, x, y - 0.05, z, 1.0 + rand() * 0.7, i + 7, (x > 14 * S && z < -6 * S) || (x < -14 * S && z > 8 * S) ? rand() > 0.35 : rand() > 0.9); });
     // 竹林：三好村後方、講堂旁、溪邊
-    place(34, 9000, () => [rand() > 0.5 ? -24 * S + rand() * 8 * S : 8 * S + rand() * 9 * S, rand() > 0.5 ? -6 * S + rand() * 16 * S : 17 * S + rand() * 7 * S], (x, z) => inland(x, z, 0.88) && free(x, z, 1.4) && dry(x, z),
-      (x, y, z, i) => { bamboo(g, x, y, z, 1.1 + rand() * 0.4, i + 11); this.circles.push([x, z, 0.6]); });
+    place(9, 9000, () => [rand() > 0.5 ? -24 * S + rand() * 8 * S : 8 * S + rand() * 9 * S, rand() > 0.5 ? -6 * S + rand() * 16 * S : 17 * S + rand() * 7 * S], (x, z) => inland(x, z, 0.88) && free(x, z, 1.4) && dry(x, z),
+      (x, y, z, i) => { bamboo(g, x, y, z, 1.1 + rand() * 0.4, i + 11); this.circles.push([x, z, 0.45]); });
     // 梅與櫻：四給街外圈、山門參道、願行台的登山路
-    place(26, 9000, () => { const a = rand() * Math.PI * 2, r = GARDEN.r + 2.5 + rand() * 5; return [GARDEN.x + Math.cos(a) * r, GARDEN.z + Math.sin(a) * r]; }, (x, z) => inland(x, z) && free(x, z, 1.2) && dry(x, z),
+    place(8, 9000, () => { const a = rand() * Math.PI * 2, r = GARDEN.r + 3.5 + rand() * 5; return [GARDEN.x + Math.cos(a) * r, GARDEN.z + Math.sin(a) * r]; }, (x, z) => inland(x, z) && free(x, z, 1.2) && dry(x, z),
       (x, y, z, i) => { plum(g, x, y, z, 1.2 + rand() * 0.4, i + 21); this.circles.push([x, z, 0.3]); });
-    place(26, 9000, nearPath(2.6, 5), (x, z) => inland(x, z) && free(x, z, 1.6) && dry(x, z) && (z > 10 * S || Math.hypot(x, z + 4 * S) < 13 * S),
+    place(8, 9000, nearPath(4, 6.5), (x, z) => inland(x, z) && free(x, z, 1.6) && dry(x, z) && (z > 10 * S || Math.hypot(x, z + 4 * S) < 13 * S),
       (x, y, z, i) => { plum(g, x, y, z, 1.1 + rand() * 0.4, i + 51); this.circles.push([x, z, 0.3]); });
     // 花圃：沿著步道兩旁
-    place(220, 20000, nearPath(1.9, 3.6), (x, z) => inland(x, z) && free(x, z, 0.6) && dry(x, z),
+    place(120, 20000, nearPath(1.9, 3.6), (x, z) => inland(x, z) && free(x, z, 0.6) && dry(x, z),
       (x, y, z, i) => flowerBed(g, x, y, z, 0.9 + rand() * 0.6, i + 5));
     // 灌叢、山石與草叢
-    place(240, 20000, anywhere(0.1, 0.9), (x, z) => inland(x, z, 0.92) && free(x, z, 0.7) && dry(x, z),
+    place(70, 20000, anywhere(0.1, 0.9), (x, z) => inland(x, z, 0.92) && free(x, z, 0.7) && dry(x, z),
       (x, y, z, i) => shrub(g, x, y, z, 0.7 + rand() * 0.7, i));
-    place(60, 9000, anywhere(0.15, 0.86), (x, z) => (hillAt(x, z) > 1.0 || streamAt(x + 2.6, z) > 0 || streamAt(x - 2.6, z) > 0) && inland(x, z) && free(x, z, 0.8) && dry(x, z),
+    place(18, 9000, anywhere(0.15, 0.86), (x, z) => (hillAt(x, z) > 1.0 || streamAt(x + 2.6, z) > 0 || streamAt(x - 2.6, z) > 0) && inland(x, z) && free(x, z, 0.8) && dry(x, z),
       (x, y, z, i) => { const r = 0.3 + rand() * 0.6; boulder(g, x, y + 0.05, z, r, i + 3); this.circles.push([x, z, r * 1.1]); });
-    place(1800, 40000, anywhere(0.08, 0.88), (x, z) => inland(x, z, 0.9) && free(x, z, 0.4) && hillAt(x, z) < 6 && dry(x, z),
+    place(1200, 40000, anywhere(0.08, 0.88), (x, z) => inland(x, z, 0.9) && free(x, z, 0.4) && hillAt(x, z) < 6 && dry(x, z),
       (x, y, z, i) => tuft(g, x, y - 0.02, z, 0.8 + rand() * 0.8, i + 3));
     // 步道旁的石燈籠（每隔一段路一盞）
     const lit = [];
@@ -304,7 +305,7 @@ export class World {
       this.animated.push((t, dt) => ring.update(dt));
       this.reserved.push([fx, fz, 1.6]);
       if (npcDef) {
-        const v = villager(npcDef.look, npcDef.color);
+        const v = villager(npcDef.look, npcDef.color, npcDef.name);
         const face = Math.atan2(fx - s.at[0], fz - s.at[1]);
         // 島民站在光圈後側，面向來訪的人
         const nx = fx - Math.sin(face) * 0.55, nz = fz - Math.cos(face) * 0.55;

@@ -17,6 +17,7 @@ import { voice } from './ui/voice.js';
 import { music } from './ui/music.js';
 import { state } from './state.js';
 import { GUIDE, ABOUT } from './ui/pages.js';
+import { LEVELS } from './data/games.js';
 
 const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia('(max-width: 860px)').matches;
@@ -65,19 +66,19 @@ function boot() {
   composer.addPass(bloom);
   const vignette = new ShaderPass(VignetteShader);
   vignette.uniforms.offset.value = 1.0;
-  vignette.uniforms.darkness.value = 0.38;
+  vignette.uniforms.darkness.value = 0.22;
   composer.addPass(vignette);
   // 島嶼光明度：善念越多，畫面越飽滿明亮
   const grade = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, uSat: { value: 0.8 }, uLift: { value: 0.98 } },
+    uniforms: { tDiffuse: { value: null }, uSat: { value: 0.92 }, uLift: { value: 1.0 } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'uniform sampler2D tDiffuse; uniform float uSat; uniform float uLift; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.299, 0.587, 0.114)); vec3 g = mix(vec3(l), c.rgb, uSat); g = (g - 0.5) * 1.05 + 0.5; g *= vec3(1.025, 1.0, 0.96) * uLift; gl_FragColor = vec4(g, c.a); }',
+    fragmentShader: 'uniform sampler2D tDiffuse; uniform float uSat; uniform float uLift; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.299, 0.587, 0.114)); vec3 g = mix(vec3(l), c.rgb, uSat); g = (g - 0.5) * 1.05 + 0.5; g *= vec3(1.01, 1.0, 0.985) * uLift; gl_FragColor = vec4(g, c.a); }',
   });
   composer.addPass(grade);
   composer.addPass(new OutputPass());
 
   /* ---------- 狀態 ---------- */
-  let onIsland = false, here = null, nearId = null, navTarget = null, running = false;
+  let onIsland = false, here = null, nearId = null, navTarget = null, running = false, stillT = 0;
   const keys = new Set();
   const joy = new THREE.Vector2();
   const chatSubs = new Set();
@@ -129,6 +130,27 @@ function boot() {
     $('progress').textContent = String(n);
     $('progress-fill').style.width = `${(n / SPOTS.length) * 100}%`;
     for (const s of SPOTS) if (st.done.includes(s.id)) world.bloom(s.id, false);
+    $('score').textContent = String(state.score);
+    $('badges').innerHTML = LEVELS.map((l) => { const ok = l.spots.every((x) => st.done.includes(x)); return `<span class="badge${ok ? ' is-on' : ''}" style="--bc:${l.color}" title="${l.badge}">${l.mark}</span>`; }).join('');
+    const cur = LEVELS.find((l) => !l.spots.every((x) => st.done.includes(x)));
+    $('level').innerHTML = cur ? `<b>${cur.name}</b><span>${cur.spots.filter((x) => st.done.includes(x)).length} / ${cur.spots.length}</span>` : '<b>全部過關！</b><span>島嶼已完全點亮</span>';
+  }
+  /** 善念值飄字 */
+  function floatPoints(n) {
+    const el = document.createElement('div');
+    el.className = 'points-pop'; el.textContent = `+${n} 善念值`;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('is-in'));
+    setTimeout(() => el.remove(), 1400);
+    renderLists();
+  }
+  /** 過關：大大的徽章 */
+  function levelUp(l) {
+    const box = $('levelup');
+    box.innerHTML = `<div class="lu-card" style="--bc:${l.color}"><span class="lu-mark">${l.mark}</span><p class="lu-t">過關！</p><h3>${l.name}</h3><p>獲得「${l.badge}」</p><button type="button" class="btn btn-primary">繼續</button></div>`;
+    box.hidden = false;
+    box.querySelector('button').addEventListener('click', () => { box.hidden = true; });
+    setTimeout(() => { box.hidden = true; }, 5000);
   }
   const hint = (t) => { $('hint').textContent = t; $('hint').classList.toggle('is-on', !!t); };
   function toast(t) {
@@ -226,11 +248,26 @@ function boot() {
       if (Math.hypot(p.x - to.x, p.y - to.y) < TALK_R && d < 3) { v.moving = false; finishQuest(q); }
       return;
     }
+    if (q.task.quest.type === 'still') {
+      const it = world.items.get(q.task.id)[0], gp = it.group.position;
+      const near = Math.hypot(gp.x - p.x, gp.z - p.y) < 2.4;
+      const br = $('breath');
+      if (near && !explorer.manualMoving) {
+        stillT += dt;
+        br.hidden = false;
+        const ph = (stillT % 4) / 4;
+        br.querySelector('i').style.transform = `scale(${0.55 + 0.45 * Math.sin(ph * Math.PI)})`;
+        br.querySelector('b').textContent = ph < 0.5 ? '吸氣……' : '吐氣……';
+        br.querySelector('small').textContent = `第 ${Math.min(3, Math.floor(stillT / 4) + 1)} / 3 次呼吸`;
+        if (stillT >= q.task.quest.secs) { br.hidden = true; stillT = 0; it.collect(); const pts = state.addPoints(`q:${q.task.id}:0`, 15); if (pts) floatPoints(pts); finishQuest(q); }
+      } else { br.hidden = true; if (!near) stillT = 0; }
+      return;
+    }
     let got = false;
     for (const it of world.items.get(q.task.id)) {
       if (it.done) continue;
       const gp = it.group.position;
-      if (Math.hypot(gp.x - p.x, gp.z - p.y) < (it.kind === 'lamp' ? 2.2 : 1.7)) { it.collect(); got = true; }
+      if (Math.hypot(gp.x - p.x, gp.z - p.y) < (it.kind === 'lamp' ? 2.2 : 1.7)) { it.collect(); got = true; const pts = state.addPoints(`q:${q.task.id}:${world.items.get(q.task.id).indexOf(it)}`, 5); if (pts) floatPoints(pts); }
     }
     if (got) {
       const pr = questProgress(q.task.id);
@@ -281,8 +318,12 @@ function boot() {
     ctx: {
       complete: (id) => {
         const was = state.isDone(id);
+        const before = LEVELS.filter((l) => l.spots.every((x) => state.isDone(x))).length;
         state.complete(id);
         if (!was) {
+          const got = state.addPoints(`done:${id}`, 20); if (got) floatPoints(got);
+          const lv = LEVELS.filter((l) => l.spots.every((x) => state.isDone(x)));
+          if (lv.length > before) setTimeout(() => levelUp(lv.find((l) => l.spots.includes(id)) || lv.at(-1)), 900);
           world.bloom(id); const z = zoneOf(id), p = state.zoneProgress(z.id); toast(p.done >= p.total ? `✦ 完成「${z.name}」` : '✦ 島上又亮了一角');
           const next = ORDER.find((x) => !state.isDone(x));
           if (next) { navTarget = next; renderLists(); hint(`下一站：${labelOf(SPOTS.find((x) => x.id === next))}。關掉面板後，跟著金色箭頭走。`); }
@@ -295,6 +336,7 @@ function boot() {
       registerChat: (c) => { activeChat = c; },
       startQuest,
       questProgress,
+      points: (n) => floatPoints(n),
     },
   });
   function openSpot(id) {
@@ -357,7 +399,7 @@ function boot() {
     if (MOVE[e.code]) { keys.add(e.code); e.preventDefault(); }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.add('Shift');
     if ((e.code === 'Enter' || e.code === 'Space') && nearId && drawer.hidden) { e.preventDefault(); openSpot(nearId); }
-    if (e.code === 'KeyM') { if (view.distT > 20) { view.distT = 9; view.pitchT = 0.36; } else { view.distT = 34; view.pitchT = 0.95; } }
+    if (e.code === 'KeyM') { if (view.distT > 26) { view.distT = 19; view.pitchT = 0.58; } else { view.distT = 34; view.pitchT = 0.95; } }
     if (e.code === 'KeyQ') keys.add('TurnL');
     if (e.code === 'KeyE') keys.add('TurnR');
     if (e.code === 'KeyR' && !e.repeat) setRun(!running);
@@ -393,9 +435,7 @@ function boot() {
   }
   /** 打開站點時，鏡頭轉到旅人身後、面向島民與建築 */
   function faceSpot(s) {
-    const want = Math.atan2(s.front[0] - s.at[0], s.front[1] - s.at[1]);
-    let d = ((want - view.yawT + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-    view.yawT += d; view.distT = Math.min(view.distT, 8.5); view.pitchT = 0.3;
+    // 依使用者回饋：對話時鏡頭維持原本的距離與角度，不自動拉近
   }
   {
     const pts = new Map(); let pinch0 = 0, dist0 = 9;
@@ -518,11 +558,11 @@ function boot() {
     } else arrow.visible = false;
     // 島嶼光明度
     glowNow += (brightness() - glowNow) * Math.min(1, dt * 1.5);
-    grade.uniforms.uSat.value = 0.8 + 0.28 * glowNow;
-    grade.uniforms.uLift.value = 0.98 + 0.06 * glowNow;
+    grade.uniforms.uSat.value = 0.92 + 0.14 * glowNow;
+    grade.uniforms.uLift.value = 1.0 + 0.04 * glowNow;
     world.update(t, dt);
     view.update(dt, innerWidth, innerHeight);
-    world.scene.fog.near = onIsland ? 45 : 160; world.scene.fog.far = onIsland ? 420 : 700;
+    world.scene.fog.near = onIsland ? 80 : 180; world.scene.fog.far = onIsland ? 560 : 800;
     composer.render();
     for (const [id, p] of pins) {
       tmp.copy(world.spots.get(id).anchor).project(view.camera);

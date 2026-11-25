@@ -30,8 +30,8 @@ export function createSky(sunDir) {
       void main() {
         vec3 d = normalize(vDir);
         float h = clamp(d.y, -0.2, 1.0);
-        vec3 zenith = vec3(0.36, 0.58, 0.78);
-        vec3 mid = vec3(0.66, 0.80, 0.88);
+        vec3 zenith = vec3(0.28, 0.52, 0.80);
+        vec3 mid = vec3(0.58, 0.76, 0.90);
         vec3 horizon = vec3(0.98, 0.93, 0.80);
         vec3 col = mix(horizon, mid, smoothstep(0.0, 0.22, h));
         col = mix(col, zenith, smoothstep(0.2, 0.85, h));

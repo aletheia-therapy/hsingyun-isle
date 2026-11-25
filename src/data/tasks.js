@@ -8,6 +8,7 @@ import { S } from './spots.js';
 export const TASKS = [
   {
     id: 'deed', group: '三好', virtue: '做好事', place: '行善亭', color: '#c9973f',
+    dharma: { h: '身業清淨・布施利行', t: '佛教說人有身、口、意三業。星雲大師說明，三好就是讓身口意三業清淨，「做好事」就是身業的修行。佛法講四攝法：布施、愛語、利行、同事，彎下腰替人撿起一顆柳丁，就是最平常的布施與利行。大師也勉勵佛光人：先從小處做起。', src: ['sanhaoText', 'rushi'] },
     npc: { name: '阿婆', look: 'elder', color: '#8e6aa8' },
     story: '阿婆提著一籃柳丁走下坡，一不小心籃子翻了，柳丁滾得滿坡都是。她扶著腰蹲在地上，一顆一顆慢慢撿。',
     say: '哎喲，我的柳丁……腰不好，彎不下去，這可怎麼辦才好？',
@@ -30,6 +31,7 @@ export const TASKS = [
   },
   {
     id: 'speech', group: '三好', virtue: '說好話', place: '愛語亭', color: '#d08a63',
+    dharma: { h: '口業清淨・愛語', t: '「說好話」是口業的修行。四攝法中的「愛語」，就是用柔和、尊重、帶著關懷的話對人說話。大師說，以鼓勵代替責備、以愛語代替指責，都是好話。一句話可以傷人，也可以成就人，這就是口業的力量。', src: ['sanhaoText', 'sanhaoWork'] },
     npc: { name: '阿哲', look: 'student', color: '#7a8a5a' },
     say: '大家都在群組裡罵我……我真的有努力做，只是做不好。',
     thanks: '謝謝你沒有在大家面前讓我難堪。今晚我會好好改的！',
@@ -50,7 +52,10 @@ export const TASKS = [
   },
   {
     id: 'heart', group: '三好', virtue: '存好心', place: '心蓮亭', color: '#b58fb0',
+    dharma: { h: '意業清淨・心為根本', t: '「存好心」是意業的修行。佛法重視心念，心是一切行為與言語的源頭：心存感恩、包容與慈悲，說的話、做的事自然也會良善。生起猜疑或嫉妒時，覺察它、轉一個念頭，就是修行。', src: ['sanhaoText'] },
     npc: { name: '小雨', look: 'student', color: '#b58fb0' },
+    story: '小雨一個人坐在心湖邊的亭子裡，心裡亂糟糟的。她說，每次心亂的時候，就會到湖邊靜靜坐一下。',
+    quest: { type: 'still', item: 'lotus', n: 1, secs: 12, label: '到心湖邊站定，跟著光圈深呼吸三次', at: [[-11.5 * S + 3.7, -14.5 * S + 0.6]] },
     say: '他們出去玩都沒有找我……是不是大家其實都不喜歡我？',
     thanks: '你說得對，我應該先問問他，而不是一直亂想。心裡輕鬆多了。',
     video: 'sanhaosong',
@@ -70,11 +75,12 @@ export const TASKS = [
   },
   {
     id: 'confidence', group: '四給', virtue: '給人信心', place: '信心亭', color: '#5f9a8b',
+    dharma: { h: '慈無量心：給人快樂', t: '四給可以對應佛教的慈、悲、喜、捨四無量心。「給人信心」對應慈無量心，也就是願意給眾生快樂與力量。大師說，信仰最重要的是培養對自己的信心：我能、我會、我可以達到目標。', src: ['wuliang', 'creed'] },
     npc: { name: '小安', look: 'student', color: '#5f9a8b' },
     say: '我是不是根本不適合讀這個系？考成這樣，好丟臉。',
     thanks: '嗯，期末我再試一次。謝謝你願意陪我一起看問題在哪裡。',
     video: 'sigei',
-    kb: ['sg-confidence', 'sg-what'],
+    kb: ['sg-confidence', 'sg-what', 'sg-wuliang'],
     scene: '你的同學期中考失利，一個人坐在系館樓梯間，跟你說：「我是不是根本不適合這個系？」',
     q: '你會怎麼回應？',
     options: [
@@ -90,13 +96,14 @@ export const TASKS = [
   },
   {
     id: 'joy', group: '四給', virtue: '給人歡喜', place: '歡喜亭', color: '#d6a640',
+    dharma: { h: '喜無量心：隨喜與歡喜', t: '「給人歡喜」對應喜無量心：看見別人的好，真心為他高興，也讓別人因為我們而歡喜。大師在〈工作的信條〉中說，所有的工作不是給人痛苦，而是要給人歡喜。', src: ['wuliang', 'creed'] },
     npc: { name: '阿姨', look: 'elder', color: '#d6a640' },
     story: '島民們寫了感謝卡要送給餐廳的阿姨，謝謝她每天準備熱騰騰的飯菜。沒想到一陣風把卡片吹散在街上。',
     say: '今天好忙，又被客人念了幾句……唉，做了這麼多年，有時候也會累。',
     thanks: '這些……都是寫給我的？哎呀，我都不知道大家這麼在意。今天再累也值得了！',
     quest: { type: 'collect', item: 'card', n: 3, label: '撿回被風吹散的感謝卡', at: [[11.6 * S, 9.8 * S], [9.4 * S, 3.6 * S], [13.6 * S, 12.4 * S]] },
     video: 'poem',
-    kb: ['sg-joy', 'sg-what', 'sh-speech'],
+    kb: ['sg-joy', 'sg-what', 'sh-speech', 'sg-wuliang'],
     scene: '你在學校餐廳打工。中午人潮最多的時候，一位阿姨把餐點送錯了桌，客人有點不耐煩。阿姨很緊張，一直道歉。',
     q: '你可以怎麼讓現場的氣氛好起來？',
     options: [
@@ -112,13 +119,14 @@ export const TASKS = [
   },
   {
     id: 'hope', group: '四給', virtue: '給人希望', place: '希望亭', color: '#7aa0c8',
+    dharma: { h: '悲無量心：拔除痛苦', t: '「給人希望」對應悲無量心，也就是願意拔除他人的痛苦。大師以醫生為例：高明的醫生會告訴病人這個病可以醫好，讓病人有信心、有希望，再配合治療就容易好起來。', src: ['wuliang', 'creed'] },
     npc: { name: '李伯伯', look: 'elder', color: '#7aa0c8' },
     story: '李伯伯的老店就在這條石板路旁。店要收了，連路上的燈也一盞盞熄了，整條路暗暗的。',
     say: '做了四十年，最後什麼都沒留下。連這條路的燈都不亮了。',
     thanks: '路又亮起來了……是啊，這四十年，其實留下了好多人的回憶。',
     quest: { type: 'light', item: 'lamp', n: 4, label: '把石板路上的燈一盞盞點亮', at: [[22.6 * S, 8.6 * S], [24.2 * S, 4.8 * S], [24.6 * S, 0.6 * S], [23.8 * S, -3.6 * S]] },
     video: 'carnival',
-    kb: ['sg-confidence', 'sg-what', 'hb-positive'],
+    kb: ['sg-confidence', 'sg-what', 'hb-positive', 'sg-wuliang'],
     scene: '鄰居李伯伯的老店因為生意不好，準備收起來。他坐在店門口說：「做了四十年，最後什麼都沒留下。」',
     q: '你會怎麼回應他？',
     options: [
@@ -134,13 +142,14 @@ export const TASKS = [
   },
   {
     id: 'ease', group: '四給', virtue: '給人方便', place: '方便亭', color: '#8aa865',
+    dharma: { h: '捨無量心：無私的方便', t: '「給人方便」對應捨無量心：放下自我中心，平等地為人著想。大師舉例：你渴了，我倒一杯茶給你；迷路了，我為你引路；地髒了，我打掃乾淨。給人方便，自己也會得到方便。', src: ['wuliang', 'creed'] },
     npc: { name: '敏娜', look: 'student', color: '#8aa865' },
     story: '剛轉學來的敏娜，中文還不太流利。她要去 AI 智慧講堂上課，卻在島上迷了路。',
     say: '不好意思……請問，AI 智慧講堂，怎麼走？我已經繞了好久。',
     thanks: '到了！謝謝你陪我走過來，還告訴我下次怎麼走。你真好！',
     quest: { type: 'escort', n: 1, label: '帶敏娜走到 AI 智慧講堂', to: 'lecture' },
     video: 'film',
-    kb: ['sg-convenience', 'sg-what', 'sh-deed'],
+    kb: ['sg-convenience', 'sg-what', 'sh-deed', 'sg-wuliang'],
     scene: '你在系辦當工讀生。一位剛轉學來的外籍同學拿著表格來問，中文不太流利，手續又很複雜。快下班了，你其實只要說「明天再來」就可以。',
     q: '你會怎麼做？',
     options: [

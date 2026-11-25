@@ -1,9 +1,11 @@
 import { TASKS } from '../data/tasks.js';
 import { VIDEOS } from '../data/videos.js';
+import { SOURCES } from '../data/sources.js';
 import { ask, AIError } from '../ai/client.js';
 import { state } from '../state.js';
 import { esc, richText, sourcesHTML, OFFLINE_NOTE } from '../ui/chat.js';
 import { voice, speakButton } from '../ui/voice.js';
+import { mountGame } from './minigame.js';
 
 const L = 'ABC';
 const roleOf = (look) => (look === 'elder' ? 'elder' : look === 'guide' ? 'guide' : 'student');
@@ -45,6 +47,7 @@ export function mount(el, spot, ctx) {
         <h3 class="tk-q">${esc(task.q)}</h3>
         <div class="opts tk-opts">${task.options.map((o, i) => `<button type="button" class="opt" data-i="${i}"><b>${L[i]}</b><span>${esc(o.t)}</span></button>`).join('')}</div>
         <section class="tk-ai" hidden></section>
+        <section class="st-game" hidden></section>
         <details class="tk-all" hidden><summary>看看每個選擇可能帶來的影響（作品解說）</summary><ul>${task.options.map((o, i) => `<li><b>${L[i]}</b>${esc(o.n)}</li>`).join('')}</ul></details>
         <details class="tk-reflect" hidden>
           <summary>加碼練習（選做）：換你說說看</summary>
@@ -77,7 +80,7 @@ export function mount(el, spot, ctx) {
     quest.innerHTML = `
       <span class="st-step">操作</span>
       <p class="st-quest-t"><b>島上任務：</b>${esc(task.quest.label)}${task.quest.n > 1 ? `（${task.quest.n} 個）` : ''}</p>
-      <p class="exp-hint">${task.quest.type === 'escort' ? `接下任務後，${esc(task.npc.name)}會跟在你身後。用方向鍵帶路，走到講堂前的光圈。` : '接下任務後，地圖上會出現發光的目標。用方向鍵走過去就會完成。'}</p>
+      <p class="exp-hint">${task.quest.type === 'escort' ? `接下任務後，${esc(task.npc.name)}會跟在你身後。用方向鍵帶路，走到講堂前的光圈。` : task.quest.type === 'still' ? '走到湖邊的蓮花旁，放開方向鍵站好，跟著畫面上的光圈呼吸三次。這是佛教最基本的修行：先讓心靜下來。' : '接下任務後，地圖上會出現發光的目標。用方向鍵走過去就會完成。'}</p>
       ${active ? `<p class="st-prog">進行中：${prog.done} / ${prog.total}</p>` : ''}
       <button type="button" class="btn btn-primary st-go">${active ? '繼續任務' : '好，我來幫忙！'}</button>`;
     quest.querySelector('.st-go').addEventListener('click', () => { voice.stop(); ctx.startQuest(task.id); });
@@ -89,6 +92,8 @@ export function mount(el, spot, ctx) {
     el.querySelectorAll('.tk-opts .opt').forEach((b, j) => { b.disabled = true; b.classList.toggle('is-picked', j === i); b.classList.toggle('is-dim', j !== i); });
     el.querySelector('.tk-all').hidden = false;
     el.querySelector('.tk-reflect').hidden = false;
+    const gm = el.querySelector('.st-game');
+    if (gm.hidden) { gm.hidden = false; mountGame(gm, task.id, ctx); }
     aiBox.hidden = false;
     const s = saved();
     if (!fresh && s.ai) { aiBox.innerHTML = aiBlock(s.ai, 'AI 怎麼看你的選擇'); addSpeak(aiBox); return; }
@@ -108,6 +113,7 @@ export function mount(el, spot, ctx) {
     const n = doneCount();
     const v = VIDEOS[task.video];
     d.innerHTML = `<b>✦ 完成「${esc(task.virtue)}」，島上又亮了一角</b><span>${n < 7 ? `還有 ${7 - n} 位島民需要你。` : '七位島民都幫到了！上山頂的願行台，帶一張願行卡回到生活吧。'}</span>
+      ${task.dharma ? `<div class="dharma"><span class="dharma-tag">佛法小語</span><h4>${esc(task.dharma.h)}</h4><p>${esc(task.dharma.t)}</p><small>出處：${task.dharma.src.map((k) => `<a href="${esc(SOURCES[k].u)}" target="_blank" rel="noopener">${esc(SOURCES[k].t)}</a>`).join('、')}</small></div>` : ''}
       ${v ? `<a class="video-link" href="${esc(v.u)}" target="_blank" rel="noopener"><span class="play" aria-hidden="true">▶</span><span><b>延伸觀看：${esc(v.t)}</b><small>${esc(v.by)}・${esc(v.d)}</small></span></a>` : ''}`;
     el.querySelector('.tk-count').textContent = `善念 ${n} / 7`;
   };
@@ -115,6 +121,9 @@ export function mount(el, spot, ctx) {
   el.querySelectorAll('.tk-opts .opt').forEach((b) => b.addEventListener('click', () => {
     const i = Number(b.dataset.i);
     state.setTask(task.id, { choice: i, ai: null });
+    const pts = { best: 30, ok: 20, weak: 10 }[task.options[i].k] || 10;
+    const got = state.addPoints(`choice:${task.id}`, pts);
+    if (got) ctx.points?.(got);
     ctx.complete(spot.id);
     if (!task.quest) { el.querySelector('.bubble-say').textContent = task.thanks; }
     showChoice(i, true);

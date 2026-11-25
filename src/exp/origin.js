@@ -4,8 +4,8 @@ import { voice, speakButton } from '../ui/voice.js';
 
 /** 山門・源頭碑：導覽員小蓮用語音介紹三好四給，再玩快問快答與配對 */
 const TALK = [
-  { h: '三好：做好事、說好話、存好心', p: '星雲大師說明，三好就是身、口、意都往善的方向走：身做好事、口說好話、心存好念。大師在 1998 年正式倡導三好運動。' },
-  { h: '四給：給人信心、歡喜、希望、方便', p: '四給是大師訂下的佛光人工作信條。島上有七位島民需要幫忙，每幫到一位，島就亮起一角。先回答兩個小問題，就出發吧！' },
+  { h: '三好：身口意都往善的方向走', p: '佛教說人有身、口、意三業。星雲大師把它說得簡單好懂：身做好事、口說好話、心存好念，這就是三好。大師在 1998 年正式倡導三好運動，從佛光山推廣到世界各地。' },
+  { h: '四給：慈悲喜捨的生活實踐', p: '四給是大師訂下的佛光人工作信條：給人信心、給人歡喜、給人希望、給人方便，正好對應佛教的慈、悲、喜、捨四無量心。這就是大師提倡的人間佛教：佛法不離生活，就在待人處事之間。島上有七位島民需要幫忙，先回答兩個小問題，就出發吧！' },
 ];
 const BIO = [['1927', '生於江蘇江都'], ['12 歲', '於南京棲霞山禮志開上人出家'], ['1949', '渡海來台'], ['1967', '開創佛光山，立下四大宗旨'], ['1998', '正式倡導三好運動'], ['2023', '圓寂，享耆壽九十七']];
 const QUIZ = [
@@ -68,7 +68,7 @@ export function mount(el, spot, ctx) {
     quiz.innerHTML = `<p class="exp-hint">第 ${qi + 1} / ${QUIZ.length} 題</p><h3 class="qz-q">${esc(q.q)}</h3><div class="opts">${q.a.map((a, i) => `<button type="button" class="opt" data-i="${i}">${esc(a)}</button>`).join('')}</div><div class="qz-why"></div>`;
     quiz.querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => {
       const i = Number(b.dataset.i), right = i === q.c;
-      if (right) score++;
+      if (right) { score++; const got = state.addPoints(`origin:${qi}`, 10); if (got) ctx.points?.(got); }
       quiz.querySelectorAll('.opt').forEach((o, j) => { o.disabled = true; o.classList.toggle('is-right', j === q.c); o.classList.toggle('is-wrong', j === i && !right); });
       const msg = `${right ? '答對了！' : '再想想。'}${q.why}`;
       quiz.querySelector('.qz-why').innerHTML = `<p>${esc(msg)}</p><button type="button" class="btn btn-primary btn-sm">${qi < QUIZ.length - 1 ? '下一題' : '繼續'}</button>`;

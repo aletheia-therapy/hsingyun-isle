@@ -454,9 +454,9 @@ export function archBridge(g, len = 4, w = 1.3) {
 /* ---------- 植物與山石 ---------- */
 function rng(seed) { let s = seed * 9301 + 49297; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
 const L = {
-  pine: () => mat('#2f5a3e', { r: 0.9 }), pine2: () => mat('#3e6b48', { r: 0.9 }),
-  leaf: () => mat('#5b8a4a', { r: 0.9 }), leaf2: () => mat('#77a056', { r: 0.9 }), leaf3: () => mat('#4a7a52', { r: 0.9 }),
-  maple: () => mat('#c9793c', { r: 0.9 }), maple2: () => mat('#d9a344', { r: 0.9 }),
+  pine: () => mat('#2c4f34', { r: 0.95 }), pine2: () => mat('#38603e', { r: 0.95 }),
+  leaf: () => mat('#4e7a3c', { r: 0.95 }), leaf2: () => mat('#6a8f45', { r: 0.95 }), leaf3: () => mat('#3f6a42', { r: 0.95 }),
+  maple: () => mat('#b5652f', { r: 0.95 }), maple2: () => mat('#c99440', { r: 0.95 }),
   plum: () => mat('#e9b7c3', { r: 0.85 }), plum2: () => mat('#f3d6dc', { r: 0.85 }),
   bark: () => mat('#4c3c30', { r: 1 }), barkLight: () => mat('#76695a', { r: 1 }),
   bamboo: () => mat('#7c9a52', { r: 0.7 }), bambooLeaf: () => mat('#5f8b43', { r: 0.9, side: THREE.DoubleSide }),
@@ -464,6 +464,24 @@ const L = {
   grass: () => mat('#6f9650', { r: 1, side: THREE.DoubleSide }), grass2: () => mat('#8aa85e', { r: 1, side: THREE.DoubleSide }),
   lotusPad: () => mat('#4f8a4c', { r: 0.8, side: THREE.DoubleSide }), lotus: () => mat('#f2c4cf', { r: 0.7 }),
 };
+
+const crowns = [];
+function crown(seed) {
+  const k = seed % 6;
+  if (!crowns[k]) {
+    const g = new THREE.IcosahedronGeometry(1, 2);
+    const p = g.attributes.position, r = rng(k * 31 + 7), v = new THREE.Vector3();
+    const f = [r() * 6, r() * 6, r() * 6];
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      const n = 1 + 0.16 * Math.sin(v.x * 3.1 + f[0]) * Math.cos(v.y * 2.7 + f[1]) + 0.1 * Math.sin(v.z * 4.3 + f[2]) + (r() - 0.5) * 0.08;
+      p.setXYZ(i, v.x * n, v.y * n * 0.92, v.z * n);
+    }
+    g.computeVertexNormals();
+    crowns[k] = g;
+  }
+  return crowns[k];
+}
 
 /** 松：彎曲的樹幹與數層扁平的松針雲 */
 export function pine(g, x, y, z, s = 1, seed = 1) {
@@ -475,8 +493,8 @@ export function pine(g, x, y, z, s = 1, seed = 1) {
   for (let i = 0; i < layers; i++) {
     const h = y + (1.3 + i * 0.55) * s, rr = (1.15 - i * 0.2) * s;
     const ox = (r() - 0.5) * 0.7 * s + lean * (0.4 + i * 0.3) * s, oz = (r() - 0.5) * 0.7 * s;
-    const p = add(g, new THREE.IcosahedronGeometry(1, 1), i % 2 ? L.pine2() : L.pine(), x + ox, h, z + oz);
-    p.scale.set(rr, rr * 0.38, rr * (0.85 + r() * 0.3));
+    const p = add(g, crown(seed + i), i % 2 ? L.pine2() : L.pine(), x + ox, h, z + oz);
+    p.scale.set(rr, rr * 0.4, rr * (0.85 + r() * 0.3)); p.rotation.y = r() * 6;
   }
 }
 /** 闊葉樹：圓潤的樹冠（可選秋色） */
@@ -485,8 +503,9 @@ export function roundTree(g, x, y, z, s = 1, seed = 1, autumn = false) {
   add(g, new THREE.CylinderGeometry(0.09 * s, 0.15 * s, 1.5 * s, 6), L.barkLight(), x, y + 0.75 * s, z);
   const mats = autumn ? [L.maple(), L.maple2()] : [L.leaf(), L.leaf2(), L.leaf3()];
   for (let i = 0; i < 4; i++) {
-    const p = add(g, new THREE.IcosahedronGeometry(0.75 * s * (0.75 + r() * 0.45), 1), mats[i % mats.length], x + (r() - 0.5) * 0.9 * s, y + (1.75 + r() * 0.7) * s, z + (r() - 0.5) * 0.9 * s);
-    p.scale.y = 0.85;
+    const k = 0.75 * s * (0.75 + r() * 0.45);
+    const p = add(g, crown(seed * 3 + i), mats[i % mats.length], x + (r() - 0.5) * 0.9 * s, y + (1.75 + r() * 0.7) * s, z + (r() - 0.5) * 0.9 * s);
+    p.scale.set(k, k * 0.82, k); p.rotation.y = r() * 6;
   }
 }
 /** 梅：枝幹虬曲、粉白的花團 */

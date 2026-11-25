@@ -9,7 +9,7 @@ export class TPCamera {
   constructor(ground) {
     this.camera = new THREE.PerspectiveCamera(52, 1, 0.1, 1800);
     this.ground = ground;
-    this.yaw = 0.25; this.pitch = 0.36; this.dist = 9;
+    this.yaw = 0.25; this.pitch = 0.58; this.dist = 19;
     this.yawT = this.yaw; this.pitchT = this.pitch; this.distT = this.dist;
     this.target = new THREE.Vector3();
     this.goal = new THREE.Vector3();
