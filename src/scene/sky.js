@@ -5,6 +5,7 @@ export function createSky(sunDir) {
   const uniforms = {
     uSun: { value: sunDir.clone().normalize() },
     uTime: { value: 0 },
+    uDusk: { value: 0 },          // 0 = 白天，1 = 黃昏（放煙火時）
   };
   const mat = new THREE.ShaderMaterial({
     uniforms,
@@ -19,7 +20,7 @@ export function createSky(sunDir) {
         gl_Position = p.xyww;
       }`,
     fragmentShader: /* glsl */`
-      uniform vec3 uSun; uniform float uTime;
+      uniform vec3 uSun; uniform float uTime; uniform float uDusk;
       varying vec3 vDir;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
@@ -47,7 +48,18 @@ export function createSky(sunDir) {
           float cl = smoothstep(0.55, 0.8, c) * smoothstep(0.02, 0.22, d.y);
           float lit = clamp(fbm(uv * 1.25 + normalize(uSun.xz) * 0.1) - c + 0.55, 0.0, 1.0);
           vec3 cc = mix(vec3(0.70, 0.74, 0.80), vec3(1.0, 0.99, 0.97), lit);
+          cc = mix(cc, mix(vec3(0.20, 0.17, 0.28), vec3(0.85, 0.52, 0.45), lit * 0.7), uDusk);   // 黃昏的雲：背光偏紫、受光偏橘
           col = mix(col, cc, cl * 0.9);
+        }
+        // 黃昏：天頂深藍紫、地平線暖橘，高處亮起幾顆星
+        if (uDusk > 0.001) {
+          vec3 dz = vec3(0.035, 0.05, 0.13), dm = vec3(0.20, 0.16, 0.32), dh = vec3(0.92, 0.55, 0.38);
+          vec3 dc = mix(dh, dm, smoothstep(0.0, 0.2, h));
+          dc = mix(dc, dz, smoothstep(0.18, 0.7, h));
+          vec2 sp = floor(d.xz / (d.y + 0.35) * 160.0);
+          float star = step(0.9965, hash(sp)) * smoothstep(0.25, 0.6, h) * (0.6 + 0.4 * sin(uTime * 2.0 + hash(sp + 7.0) * 30.0));
+          dc += vec3(0.9, 0.92, 1.0) * star * 0.8;
+          col = mix(col, dc, uDusk);
         }
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
@@ -57,7 +69,7 @@ export function createSky(sunDir) {
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(400, 48, 24), mat);
   mesh.frustumCulled = false;
   mesh.renderOrder = -10;
-  return { mesh, update: (t) => { uniforms.uTime.value = t; } };
+  return { mesh, update: (t) => { uniforms.uTime.value = t; }, setDusk: (k) => { uniforms.uDusk.value = k; } };
 }
 
 /** 柔軟的雲霧貼片（canvas 漸層材質），用於山腰的薄霧與遠方的雲 */

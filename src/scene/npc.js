@@ -111,7 +111,8 @@ export function animateFigure(f, { walking, phase, amp = 1, mood = 'idle', t = 0
     ll.userData.knee.rotation.x = Math.max(0, -c) * 0.9 * amp; rl.userData.knee.rotation.x = Math.max(0, c) * 0.9 * amp;
     la.rotation.x = -s * 0.5 * amp; ra.rotation.x = s * 0.5 * amp;
     ra.rotation.z += (0.06 - ra.rotation.z) * 0.3;
-    la.userData.elbow.rotation.x = -0.35; ra.userData.elbow.rotation.x = -0.35;
+    const elb = -0.35 - 0.6 * Math.max(0, amp - 1);
+    la.userData.elbow.rotation.x = elb; ra.userData.elbow.rotation.x = elb;
     f.body.position.y = Math.abs(Math.cos(phase)) * 0.035 * amp;
     f.head.rotation.x = 0;
     return;
@@ -182,17 +183,21 @@ export function villager(look = 'student', color = '#5f9a8b', name = '', id = ''
     basket.userData.fruits = fruits;
     group.add(basket);
   }
-  let mood = 'sad', moving = false, clock = Math.random() * 10, phase = 0, look_ = 0;
+  let mood = 'sad', moving = false, clock = Math.random() * 10, phase = 0, look_ = 0, stepped = 0;
   const watch = new THREE.Vector2(9999, 9999);
   const api = {
     group,
     setMood(m) { mood = m; if (basket) { const up = m === 'happy'; basket.rotation.z = up ? 0 : 1.35; basket.position.y = up ? 0 : 0.17; basket.userData.fruits.visible = up; } },
     setBadge() {},
     set moving(v) { moving = v; },
+    /** 走了 d 公尺（步伐依距離換腳，不會像在滑） */
+    stepBy(d) { phase += d * Math.PI / 1.3; stepped = d; },
     /** 旅人的位置（島民會轉頭看他） */
     watch(x, z) { watch.set(x, z); },
     update(dt) {
-      clock += dt; if (moving) phase += dt * 9;
+      clock += dt; if (moving && !stepped) phase += dt * 9;
+      const amp = stepped ? Math.min(1.3, 0.6 + 0.7 * (stepped / Math.max(dt, 1e-4)) / 5) : 1;
+      stepped = 0;
       const g = group.position, d = Math.hypot(watch.x - g.x, watch.y - g.z);
       let target = 0;
       if (d < 7 && d > 0.3) {
@@ -201,7 +206,7 @@ export function villager(look = 'student', color = '#5f9a8b', name = '', id = ''
         target = THREE.MathUtils.clamp(a, -1.0, 1.0);
       }
       look_ += (target - look_) * Math.min(1, dt * 4);
-      animateFigure(f, { walking: moving, phase, mood, t: clock, look: look_ });
+      animateFigure(f, { walking: moving, phase, amp, mood, t: clock, look: look_ });
     },
   };
   api.setMood('sad');

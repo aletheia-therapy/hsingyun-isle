@@ -3,7 +3,9 @@ import { heightAt } from './terrain.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { humanFigure, animateFigure } from './npc.js';
 
-const SPEED = 3.6;      // 公尺／秒
+const SPEED = 3.6;      // 公尺／秒（沿路徑自動走時）
+/** 輕快小跑步：全速時每一步 1.35 公尺；走得慢時步伐跟著變小。換腳的節奏依實際移動的距離計算，腳不會在地上滑 */
+const STEP_MIN = 0.75, STEP_MAX = 1.35, GAIT_REF = 5.0;
 
 /**
  * 旅人：背著背包、提著一盞小燈的年輕學習者。沿折線路徑行走，腳下跟著地形。
@@ -22,6 +24,9 @@ export class Explorer {
     this.speedScale = 1;
     this.pauseT = 0;
     this.manualMoving = false;
+    this.step = 0;           // 步伐相位（每走一步加 π）
+    this.speedNow = 0;       // 這一幀實際移動的速度
+    this.gait = 0;           // 0 = 站著，1 = 全速小跑
   }
 
   /**
@@ -32,6 +37,7 @@ export class Explorer {
     const len = Math.hypot(dx, dz);
     if (len < 1e-4) { this.manualMoving = false; return false; }
     dx /= len; dz /= len;
+    const x0 = this.pos.x, z0 = this.pos.y;
     const tryMove = (ux, uz, k) => {
       const nx = this.pos.x + ux * dist * k, nz = this.pos.y + uz * dist * k;
       if (!canWalk(nx, nz)) return false;
@@ -48,7 +54,12 @@ export class Explorer {
         }
       }
     }
-    if (moved) this.facing = dampAngle(this.facing, Math.atan2(mx, mz), 10, dt);
+    if (moved) {
+      this.facing = dampAngle(this.facing, Math.atan2(mx, mz), 12, dt);
+      const d = Math.hypot(this.pos.x - x0, this.pos.y - z0);
+      this.speedNow = d / Math.max(dt, 1e-4);
+      this.step += d * Math.PI / (STEP_MIN + (STEP_MAX - STEP_MIN) * this.gait);
+    }
     this.manualMoving = moved;
     this.#sync();
     return moved;
@@ -73,10 +84,29 @@ export class Explorer {
     });
     g.add(this.fig.root);
     this.body = this.fig.body;
+    // 被樹冠或屋頂擋住時，仍然看得到人物的淡淡輪廓（只畫上半身，走在草地裡時腿不會發光）。
+    // 先畫輪廓（只在被擋住的地方出現），再畫人物本身，所以人物自己的手臂不會在身上畫出輪廓。
+    let own = null;
+    const sil = new THREE.MeshBasicMaterial({ color: '#ffd77a', transparent: true, opacity: 0.62, depthWrite: false, depthFunc: THREE.GreaterDepth, fog: false });
+    this.fig.root.traverse((o) => {
+      if (!o.isMesh) return;
+      if (!own) { own = o.material.clone(); own.transparent = true; }
+      o.material = own; o.renderOrder = 10;
+    });
+    this.fig.torso.traverse((o) => {
+      if (!o.isMesh || o.userData.sil) return;
+      const s = new THREE.Mesh(o.geometry, sil); s.userData.sil = true; s.renderOrder = 9; s.castShadow = false; s.receiveShadow = false;
+      o.add(s);
+    });
     const blobGeo = new THREE.CircleGeometry(0.32, 20); blobGeo.rotateX(-Math.PI / 2);
     const blob = new THREE.Mesh(blobGeo, new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.24, depthWrite: false }));
     blob.position.y = 0.03;
     g.add(blob);
+    // 腳下一圈淡金色的光環：遠遠看也找得到自己
+    const ringGeo = new THREE.RingGeometry(0.46, 0.58, 40); ringGeo.rotateX(-Math.PI / 2);
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: '#ffd98a', transparent: true, opacity: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+    ring.position.y = 0.04; ring.renderOrder = 2;
+    g.add(ring);
     return g;
   }
 
@@ -100,9 +130,10 @@ export class Explorer {
 
   update(dt) {
     this.clock += dt;
-    this.step = (this.step || 0) + dt * (this.stride || 9);
     if (this.pauseT > 0) this.pauseT -= dt;
-    const walking = (this.path.length && this.pauseT <= 0) || this.manualMoving;
+    const pathWalk = this.path.length && this.pauseT <= 0;
+    const walking = pathWalk || this.manualMoving;
+    if (pathWalk) this.step += SPEED * this.speedScale * dt * Math.PI / STEP_MIN;
     if (this.path.length && this.pauseT <= 0) {
       let remain = SPEED * this.speedScale * dt;
       while (remain > 0 && this.path.length) {
@@ -127,8 +158,11 @@ export class Explorer {
         this.facing = dampAngle(this.facing, dir, 10, dt);
       }
     }
-    animateFigure(this.fig, { walking, phase: this.step, amp: this.stride > 13 ? 1.25 : 1, t: this.clock });
-    if (walking) this.fig.torso.rotation.x = this.stride > 13 ? 0.12 : 0.04;
+    // 步伐大小、身體前傾隨速度平順變化（起步、停下都不會突然換姿勢）
+    const want = walking ? Math.min(1, (this.manualMoving ? this.speedNow : SPEED) / GAIT_REF) : 0;
+    this.gait += (want - this.gait) * (1 - Math.exp(-10 * dt));
+    animateFigure(this.fig, { walking: walking && this.gait > 0.08, phase: this.step, amp: 0.6 + 0.75 * this.gait, t: this.clock });
+    if (walking) this.fig.torso.rotation.x = 0.03 + 0.09 * this.gait;
     else this.fig.torso.rotation.x *= 0.9;
     this.manualMoving = false;
     this.#sync();

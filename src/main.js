@@ -12,19 +12,20 @@ import { music } from './ui/music.js';
 import { state } from './state.js';
 import { GUIDE, ABOUT } from './ui/pages.js';
 import { LEVELS } from './data/games.js';
+import { Fireworks } from './scene/fireworks.js';
+import { sfx } from './ui/sfx.js';
 
 const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia('(max-width: 860px)').matches;
 const touch = matchMedia('(pointer: coarse)').matches;
 const TALK_R = 2.4;
-/** 走路速度（公尺／秒）；帶路時島民跟得上 */
-const WALK = 5.6, FOLLOW = 6.2;
+/** 移動速度（公尺／秒，輕快小跑步）；帶路時島民跟得上 */
+const WALK = 5.0, FOLLOW = 5.6;
 /** 建議路線：沿著島走一圈（山門 → 三好村 → 四給街 → 講堂 → 影音堂 → 山頂），每一站都在上一站附近 */
 const ORDER = ['origin', 'deed', 'speech', 'heart', 'confidence', 'hope', 'joy', 'ease', 'lecture', 'media', 'vowterrace'];
 const NUM = '①②③④⑤⑥⑦⑧⑨⑩⑪';
 const INTRO_KEY = 'hsingyun-isle:intro';
 const WORKS = new Set(['book', 'easel', 'pot']);
-const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 
 function fail(msg) {
   $('error-msg').textContent = msg;
@@ -64,11 +65,15 @@ function boot() {
   view.follow(START[0], 0, START[1]);
   const guide = new Guide(world);
   const buildMs = Math.round(performance.now() - t0);
+  /** 山頂的願行台：全部完成後回到這裡放煙火 */
+  const SUMMIT = world.spots.get('vowterrace');
+  const allDone = () => SPOTS.every((s) => state.isDone(s.id));
   /** 會轉頭看旅人的任務人物 */
   const watchers = [...world.items.values()].flat().filter((it) => it.watch);
 
   /* ---------- 狀態 ---------- */
-  let onIsland = false, here = null, nearId = null, nearItem = null, navTarget = null, stillT = 0, talking = null, inRef = null;
+  let onIsland = false, here = null, nearId = null, nearItem = null, nearFinale = false, navTarget = null, stillT = 0, talking = null, speedNow = 0, finale = null, duskNow = 0;
+  const lastDir = new THREE.Vector2(0, 1);
   const keys = new Set();
   const joy = new THREE.Vector2();
   const chatSubs = new Set();
@@ -168,6 +173,7 @@ function boot() {
   }
   /** 過關：大大的徽章 */
   function levelUp(l) {
+    if (finale) return;                    // 煙火已經開始了，就不再跳出徽章
     const box = $('levelup');
     box.innerHTML = `<div class="lu-card" style="--bc:${l.color}"><span class="lu-mark">${l.mark}</span><p class="lu-t">過關！</p><h3>${l.name}</h3><p>獲得「${l.badge}」</p><button type="button" class="btn btn-primary">繼續</button></div>`;
     box.hidden = false;
@@ -277,7 +283,8 @@ function boot() {
         const step = Math.min(d - 1.4, FOLLOW * dt);
         const dx = (p.x - g.x) / d, dz = (p.y - g.z) / d;
         g.x += dx * step; g.z += dz * step; g.y = ground(g.x, g.z);
-        v.group.rotation.y = Math.atan2(dx, dz); v.moving = true;
+        let a = Math.atan2(dx, dz) - v.group.rotation.y; a = Math.atan2(Math.sin(a), Math.cos(a));
+        v.group.rotation.y += a * Math.min(1, dt * 10); v.moving = true; v.stepBy(step);
       } else v.moving = false;
       if (d > 14) { const f = view.forward(); g.x = p.x - f.x * 1.4; g.z = p.y - f.y * 1.4; }      // 跟丟了就跳到身邊
       const to = world.spots.get(q.task.quest.to).frontV;
@@ -432,7 +439,8 @@ function boot() {
       const sub = t ? `${t.npc.name}遇到了一點困難` : next === 'origin' ? '她在山門旁的石碑前，會告訴你這座島在做什麼' : next === 'lecture' ? '和 AI 聊聊你生活中的難題' : next === 'media' ? '看看三好四給在世界各地的影片' : '選一個你願意做到的小行動';
       return { kind: 'next', tag: `第 ${step} 站／共 ${ORDER.length} 站`, color: t?.color || zoneOf(next).color, title, sub, target: s.frontV, key: 'spot:' + next, spot: next };
     }
-    return { kind: 'free', tag: '全部完成', color: '#b8863b', title: '整座島都被你點亮了！', sub: '可以自由走走，或打開 AI 導覽聊聊天', target: null, key: 'free' };
+    if (!st.finale) return { kind: 'final', tag: '最後一步', color: '#b0565a', title: '回到山頂，看看被你點亮的島', sub: '走到山頂的願行台', target: SUMMIT.frontV, key: 'final' };
+    return { kind: 'free', tag: '全部完成', color: '#b8863b', title: '整座島都被你點亮了！', sub: '可以自由走走；回到山頂的願行台，還可以再看一次煙火', target: null, key: 'free' };
   }
 
   const obEl = $('objective'), obArrow = obEl.querySelector('.ob-arrow');
@@ -462,7 +470,7 @@ function boot() {
   const talkVerb = (id) => { const s = spotOf(id), t = taskOf(id); return t ? `和 ${t.npc.name} 說話` : s.npc ? `和 ${s.npc.name} 說話` : `進入「${s.place}」`; };
 
   /** 地上箭頭與目標光圈 */
-  const showWorld = () => onIsland && !card.open && intro.hidden;
+  const showWorld = () => onIsland && !card.open && intro.hidden && !finale;
   function updateGuide() {
     const on = showWorld();
     guide.setTarget(on ? ob.target : null, ob.key, ob.extras || []);
@@ -607,20 +615,21 @@ function boot() {
   /* ---------- 靠近互動：島民的站點，或任務中的組員與心火 ---------- */
   const promptEl = $('prompt');
   let nearKey = '';
-  function setNear(spotId, item) {
-    nearItem = item; nearId = item ? null : spotId;
-    const key = item ? `i:${item.task.id}:${item.i}` : spotId ? `s:${spotId}` : '';
+  function setNear(spotId, item, fin = false) {
+    nearItem = item; nearId = item ? null : spotId; nearFinale = !item && !spotId && fin;
+    const key = item ? `i:${item.task.id}:${item.i}` : spotId ? `s:${spotId}` : nearFinale ? 'finale' : '';
     if (key === nearKey) return;
     nearKey = key;
     if (!key) { promptEl.hidden = true; return; }
     let what;
-    if (item) what = item.it.talk.kind === 'fire' ? `熄滅 <b>${esc(item.it.talk.name)}</b>` : `和 <b>${esc(item.it.talk.name)}</b> 說話`;
+    if (nearFinale) what = '再看一次 <b>煙火</b>';
+    else if (item) what = item.it.talk.kind === 'fire' ? `熄滅 <b>${esc(item.it.talk.name)}</b>` : `和 <b>${esc(item.it.talk.name)}</b> 說話`;
     else { const s = spotOf(spotId), t = taskOf(spotId); what = t ? `和 <b>${esc(t.npc.name)}</b> 說話` : s.npc ? `和 <b>${esc(s.npc.name)}</b> 說話` : `進入 <b>${esc(s.place)}</b>`; }
     promptEl.hidden = false;
     promptEl.innerHTML = `<kbd>${touch ? '點這裡' : 'Enter'}</kbd><span>${what}</span>`;
     obT = 1;
   }
-  const interact = () => { if (nearItem) openTalk(nearItem); else if (nearId) openSpot(nearId); };
+  const interact = () => { if (nearItem) openTalk(nearItem); else if (nearId) openSpot(nearId); else if (nearFinale) startFinale(); };
   promptEl.addEventListener('click', interact);
   function nearestStation() {
     const p = explorer.pos;
@@ -635,12 +644,98 @@ function boot() {
     return best;
   }
 
+  /* ---------- 終點：全部完成後回到山頂，黃昏的天空放滿煙火 ---------- */
+  let summitArmed = true;
+  const _fp = new THREE.Vector3();
+  const fw = new Fireworks(world.scene, (color, k, x, y, z) => {
+    world.flash(color, 0.32 * k);
+    const d = view.camera.position.distanceTo(_fp.set(x, y, z));
+    sfx.boom(k * Math.min(1, 75 / d), d / 340);          // 聲音比光慢：遠的煙火晚一點才聽到
+    if (k < 1) sfx.crackle(d / 340 + 0.6, 1.4, 0.8);
+  });
+  const finaleEl = $('finale');
+  const TYPES = ['peony', 'peony', 'ring', 'lotus', 'glitter', 'peony', 'willow'];
+  /** 這一場煙火的節目單：先零星幾發，越放越密，最後齊放，以三發金色垂柳收尾 */
+  function finalePlan() {
+    const plan = [], R = Math.random;
+    const spread = innerWidth / innerHeight >= 1 ? 28 : 17;          // 直式手機畫面比較窄，煙火集中一點
+    const shot = (t, type, pal, near = 1) => {
+      const a = R() * 6.283, r = Math.sqrt(R()) * spread * near, x = Math.cos(a) * r, z = -3 + Math.sin(a) * r;
+      const y0 = Math.max(0, heightAt(x, z));
+      plan.push({ t, x, z, y0, type: type ?? TYPES[Math.floor(R() * TYPES.length)], pal: pal ?? Math.floor(R() * 6), h: 44 + R() * 24 - y0 });
+    };
+    let t = 2.4;
+    while (t < 9.5) { shot(t); t += 0.85 + R() * 0.6; }
+    while (t < 15.5) { shot(t); if (R() < 0.55) shot(t + 0.12 + R() * 0.25); t += 0.42 + R() * 0.3; }
+    for (let k = 0; k < 24; k++) shot(15.8 + R() * 3.6);
+    for (let k = 0; k < 3; k++) shot(20.2 + k * 0.25, 'willow', 0, 0.45);
+    shot(20.9, 'glitter', 4, 0.2);
+    return plan.sort((a, b) => a.t - b.t);
+  }
+  function finaleCaption() {
+    const vow = state.get().vow?.text;
+    finaleEl.innerHTML = `
+      <div class="fin-box" role="dialog" aria-label="完成">
+        <p class="fin-eyebrow" data-at="3.2">恭喜你</p>
+        <h2 class="fin-title" data-at="3.4">完成三好四給的探索學習</h2>
+        <p class="fin-line" data-at="6">做好事・說好話・存好心</p>
+        <p class="fin-line" data-at="7.3">給人信心・給人歡喜・給人希望・給人方便</p>
+        <p class="fin-wish" data-at="9.6">請把這份善念，實踐在生活中。</p>
+        ${vow ? `<p class="fin-vow" data-at="11.5"><span>你的願</span>${esc(vow)}</p>` : ''}
+        <div class="fin-actions" data-at="12.5">
+          <button type="button" class="btn btn-primary fin-back">回到島上</button>
+          <button type="button" class="btn btn-ghost fin-again">再放一次煙火</button>
+        </div>
+      </div>`;
+    finaleEl.querySelector('.fin-back').addEventListener('click', endFinale);
+    finaleEl.querySelector('.fin-again').addEventListener('click', () => { if (finale) { finale.plan = finalePlan(); finale.i = 0; finale.t = 1.8; } });
+    finaleEl.hidden = false;
+  }
+  function startFinale() {
+    if (finale) return;
+    if (card.open) closeCard();
+    if (!drawer.hidden) closeDrawer();
+    if (talking) closeTalk();
+    $('levelup').hidden = true; $('breath').hidden = true;
+    keys.clear(); joy.set(0, 0); speedNow = 0; hint(''); setNear(null, null);
+    finale = { t: 0, i: 0, plan: finalePlan() };
+    state.setFinale(true);
+    document.body.classList.add('finale');
+    const aspect = innerWidth / innerHeight;
+    // 鏡頭降到比煙火低、微微仰望：煙火在暮色的天空裡綻放，島在畫面下方
+    view.setCinema(true, { center: new THREE.Vector3(0, 32, -3), pitch: -0.05, dist: aspect >= 1 ? 96 : 96 + (1 - aspect) * 95, spin: 0.035 });
+    finaleCaption();
+    reframe();
+  }
+  function finaleTick(dt) {
+    const f = finale;
+    f.t += dt;
+    while (f.i < f.plan.length && f.plan[f.i].t <= f.t) {
+      const p = f.plan[f.i++];
+      fw.launch(p.x, p.y0, p.z, p);
+      if (Math.random() < 0.3) sfx.whoosh(0.1);
+    }
+    finaleEl.querySelectorAll('[data-at]').forEach((el) => { if (f.t >= Number(el.dataset.at)) el.classList.add('is-on'); });
+  }
+  function endFinale() {
+    if (!finale) return;
+    finale = null;
+    document.body.classList.remove('finale');
+    finaleEl.hidden = true; finaleEl.innerHTML = '';
+    view.setCinema(false, { facing: explorer.facing });
+    summitArmed = false;
+    obT = 1;
+    canvas.focus?.();
+    reframe();
+  }
+
   /* ---------- 鍵盤與觸控搖桿 ---------- */
   const MOVE = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1], KeyA: [-1, 0], ArrowLeft: [-1, 0], KeyD: [1, 0], ArrowRight: [1, 0] };
   const typing = (e) => /INPUT|TEXTAREA|SELECT/.test(e.target?.tagName || '') || e.target?.isContentEditable;
   const intro = $('intro');
   addEventListener('keydown', (e) => {
     if (!intro.hidden) { if (e.key === 'Enter' || e.key === 'Escape' || e.code === 'Space') { e.preventDefault(); closeIntro(); } return; }
+    if (finale) { if (e.key === 'Escape') endFinale(); return; }
     if (talking) {
       if (e.key === 'Escape') { closeTalk(); return; }
       const n = Number(e.key);
@@ -655,7 +750,7 @@ function boot() {
     }
     if (typing(e) || !onIsland || card.open || !$('modal').hidden) return;
     if (MOVE[e.code]) { keys.add(e.code); e.preventDefault(); }
-    if ((e.code === 'Enter' || e.code === 'Space') && (nearItem || nearId) && drawer.hidden) { e.preventDefault(); interact(); }
+    if ((e.code === 'Enter' || e.code === 'Space') && (nearItem || nearId || nearFinale) && drawer.hidden) { e.preventDefault(); interact(); }
     if (e.code === 'KeyQ') keys.add('TurnL');
     if (e.code === 'KeyE') keys.add('TurnR');
     if (e.code === 'Equal' || e.code === 'NumpadAdd') view.zoom(0.85);
@@ -734,6 +829,7 @@ function boot() {
     reframe();
   }
   function goHome() {
+    if (finale) endFinale();
     closeCard(); closeDrawer(); if (talking) closeTalk();
     onIsland = false;
     document.body.classList.remove('on-island');
@@ -797,61 +893,82 @@ function boot() {
 
   /* ---------- 迴圈 ---------- */
   const clock = new THREE.Clock();
-  let t = 0, timeScale = 1, fpsAcc = 0, fpsN = 0;
+  let t = 0, timeScale = 1, fpsAcc = 0, fpsN = 0, lowN = 0, highN = 0, lastDrop = -1e9;
   const mv = new THREE.Vector2();
   renderer.setAnimationLoop(() => {
     const raw = clock.getDelta();
     const dt = Math.min(raw, 0.05) * timeScale;
     t += dt;
-    if (onIsland && !card.open && modal.hidden && intro.hidden && !talking) {
+    if (onIsland && !card.open && modal.hidden && intro.hidden && !talking && !finale) {
       mv.set(0, 0);
       for (const k of keys) if (MOVE[k]) { mv.x += MOVE[k][0]; mv.y += MOVE[k][1]; }
-      mv.add(joy);
+      // 搖桿：中間一小圈不動（手指輕放不會亂走），推到七成左右就是全速
+      const jl = joy.length();
+      if (jl > 0.12) { const k = Math.min(1, (jl - 0.12) / 0.55); mv.x += joy.x / jl * k; mv.y += joy.y / jl * k; }
       if (keys.has('TurnL')) view.turn(dt * 1.6);
       if (keys.has('TurnR')) view.turn(-dt * 1.6);
-      if (mv.lengthSq() > 0.01) {
-        const len = Math.min(1, mv.length());
-        // 按住方向時，「往前」以剛開始按的那一刻的鏡頭為準：鏡頭轉到背後時，方向不會跟著一直變（不會繞圈圈）
-        const ang = Math.atan2(mv.x, mv.y);
-        if (!inRef || inRef.n !== view.manualN || Math.abs(angDiff(ang, inRef.ang)) > 0.6) inRef = { yaw: view.yaw, ang, n: view.manualN };
-        const F = view.forward(inRef.yaw), R = view.right(inRef.yaw);
-        let dx = R.x * mv.x + F.x * mv.y, dz = R.y * mv.x + F.y * mv.y;
-        const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
-        [dx, dz] = world.bridgeAssist(explorer.pos.x, explorer.pos.y, dx, dz);      // 走到橋頭時，自動對準橋面
-        explorer.stride = 11.5;
-        const moved = explorer.drive(dx, dz, WALK * len * dt, dt, walkable);
-        view.autoFollow(explorer.facing, dt, moved);
-      } else { inRef = null; view.autoFollow(explorer.facing, dt, false); }
+      const want = Math.min(1, mv.length()), pushing = want > 0.02;
+      if (pushing) {
+        // 方向以「現在的畫面」為準：往上推就是往畫面前方走
+        const F = view.forward(), R = view.right();
+        const dx = R.x * mv.x + F.x * mv.y, dz = R.y * mv.x + F.y * mv.y, dl = Math.hypot(dx, dz) || 1;
+        lastDir.set(dx / dl, dz / dl);
+      }
+      // 起步、停下都有一點加減速，不會瞬間全速或瞬間定住
+      const goal = pushing ? WALK * want : 0;
+      speedNow += (goal - speedNow) * (1 - Math.exp(-(goal > speedNow ? 9 : 13) * dt));
+      let moved = false;
+      if (speedNow > 0.05) {
+        const [dx, dz] = world.bridgeAssist(explorer.pos.x, explorer.pos.y, lastDir.x, lastDir.y);      // 走到橋頭時，自動對準橋面
+        moved = explorer.drive(dx, dz, speedNow * dt, dt, walkable);
+      } else speedNow = 0;
+      // 鏡頭跟著「玩家想走的方向」轉，而不是撞到牆、沿著岸邊滑動時的方向（撞到東西時畫面不會亂晃）
+      view.autoFollow(Math.atan2(lastDir.x, lastDir.y), dt, pushing && moved);
       questTick(dt);
-      const ni = nearestTalkItem();
-      setNear(ni ? null : nearestStation(), ni);
+      const ni = nearestTalkItem(), ns = ni ? null : nearestStation();
+      // 全部完成後回到山頂：第一次自動放煙火；之後走到山頂可以再看一次
+      let fin = false;
+      if (allDone()) {
+        const d = Math.hypot(SUMMIT.front[0] - explorer.pos.x, SUMMIT.front[1] - explorer.pos.y);
+        if (d > 14) summitArmed = true;
+        else if (!state.get().finale && summitArmed) { summitArmed = false; startFinale(); }
+        fin = d < 9 && state.get().finale;
+      }
+      setNear(ns, ni, fin);
       // 自選的目的地到了
       if (navTarget) { const s = world.spots.get(navTarget); if (Math.hypot(s.front[0] - explorer.pos.x, s.front[1] - explorer.pos.y) <= TALK_R) { navTarget = null; obT = 1; } }
-    }
+    } else { speedNow = 0; view.autoFollow(explorer.facing, dt, false); }
     view.follow(explorer.pos.x, explorer.object.position.y, explorer.pos.y);
-    const fw = view.forward();
-    world.follow(explorer.pos.x, explorer.pos.y, fw.x, fw.y);
+    const fwd = view.forward();
+    world.follow(explorer.pos.x, explorer.pos.y, fwd.x, fwd.y);
     explorer.update(dt);
     for (const v of world.npcs.values()) v.watch(explorer.pos.x, explorer.pos.y);
     for (const w of watchers) w.watch(explorer.pos.x, explorer.pos.y);
     if (onIsland) renderObjective(dt);
-    // 島嶼光明度：善念越多，畫面越明亮
+    if (finale) finaleTick(dt);
+    // 島嶼光明度：善念越多，畫面越明亮；放煙火時天色轉為黃昏
     glowNow += (brightness() - glowNow) * Math.min(1, dt * 1.5);
-    renderer.toneMappingExposure = 0.95 + 0.1 * glowNow;
+    const duskT = finale ? 1 : 0;
+    if (Math.abs(duskT - duskNow) > 0.0005) { duskNow += (duskT - duskNow) * (1 - Math.exp(-(finale ? 0.8 : 1.1) * dt)); if (Math.abs(duskT - duskNow) < 0.002) duskNow = duskT; world.setDusk(duskNow); }
+    renderer.toneMappingExposure = (0.95 + 0.1 * glowNow) * (1 - 0.36 * duskNow);
+    fw.update(dt, view.camera, renderer.domElement.height);
     world.update(t, dt);
     updateGuide();
     guide.update(dt, explorer.pos, ground);
     view.update(dt, innerWidth, innerHeight);
     renderer.render(world.scene, view.camera);
     updateTags();
-    // 依實際幀率調整解析度（低於 40 fps 降低、穩定 58 fps 以上再慢慢升回）
+    // 依實際幀率調整解析度：連續偏慢才降低；要穩定很久、而且離上次降低超過 20 秒才慢慢升回
+    // （避免在兩個解析度之間來回切換，每次切換都會讓畫面頓一下）
     fpsAcc += raw; fpsN++;
     if (fpsAcc > 2) {
       const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
       if (!fixedRes && !document.hidden) {
+        if (fps < 38) { lowN++; highN = 0; } else if (fps > 58) { highN++; lowN = 0; } else { lowN = 0; highN = 0; }
         let next = prNow;
-        if (fps < 40 && prNow > 0.75) next = Math.max(0.75, prNow - 0.2);
-        else if (fps > 58 && prNow < prMax) next = Math.min(prMax, prNow + 0.1);
+        const now = performance.now();
+        if (lowN >= 2 && prNow > 0.75) { next = Math.max(0.75, prNow - 0.2); lowN = 0; lastDrop = now; }
+        else if (highN >= 4 && prNow < prMax && now - lastDrop > 20000) { next = Math.min(prMax, prNow + 0.1); highN = 0; }
         if (next !== prNow) { prNow = next; renderer.setPixelRatio(prNow); resize(); }
       }
     }
@@ -862,7 +979,8 @@ function boot() {
 
   // 自動化測試用（不影響使用者）
   window.__isle = {
-    world, explorer, card, view, state, renderer, guide, enterIsland, openDrawer, openSpot, startQuest, setNav, closeIntro, openTalk,
+    world, explorer, card, view, state, renderer, guide, enterIsland, openDrawer, openSpot, startQuest, setNav, closeIntro, openTalk, startFinale, endFinale, fw,
+    get finale() { return finale; },
     keys, joy, buildMs, get near() { return nearId; }, get nearItem() { return nearItem; }, get talking() { return talking; }, get objective() { return objective(); }, get pixelRatio() { return prNow; },
     teleport(x, z) { explorer.place(x, z); },
     set timeScale(v) { timeScale = v; },

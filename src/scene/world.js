@@ -93,6 +93,7 @@ export class World {
     scene.fog = new THREE.Fog(HAZE, 90, 540);
     const sky = createSky(SUN_DIR);
     scene.add(sky.mesh); this.animated.push(sky.update);
+    this.sky = sky;
     this.hemi = new THREE.HemisphereLight('#dbe7f3', '#71704c', 1.35);
     scene.add(this.hemi);
     const sun = new THREE.DirectionalLight('#fff2df', 2.9);
@@ -108,6 +109,7 @@ export class World {
 
     const water = createWater(SUN_DIR);
     scene.add(water.mesh); this.animated.push(water.update);
+    this.water = water;
 
     /* ---- 步道（先建，地形要依步道畫出路旁被踩過的草地） ---- */
     this.graph = new PathGraph(spots);
@@ -219,6 +221,7 @@ export class World {
       [-90, 40, -260, 120, '#ffffff', 0.35], [110, 46, -280, 140, '#ffffff', 0.3], [-260, 36, -60, 110, '#ffffff', 0.3],
     ]);
     scene.add(mist.group); this.animated.push(mist.update);
+    this.mist = mist.group;
     this.#farHills();
 
     this.peakTop = new THREE.Vector3(PEAK.x, heightAt(PEAK.x, PEAK.z), PEAK.z);
@@ -516,6 +519,7 @@ export class World {
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
       mesh.renderOrder = -5;
+      (this.hillMats ||= []).push(mesh.material);
       this.scene.add(mesh);
     }
   }
@@ -573,23 +577,25 @@ export class World {
       const ax = Math.sin(d.angle), az = Math.cos(d.angle), px = -az, pz = ax;
       const rx = x - d.x, rz = z - d.z, half = d.len / 2;
       const along = rx * ax + rz * az, across = rx * px + rz * pz;
-      const da = dx * ax + dz * az;
-      if (Math.abs(da) < 0.4) continue;              // 沿著岸邊橫著走：不干涉
+      const da = dx * ax + dz * az, al = Math.abs(da);
+      if (al < 0.3) continue;                        // 沿著岸邊橫著走：不干涉
       const s = Math.sign(da), a = s * along;        // a：沿著前進方向的位置（-half 是入口，+half 是出口）
       const de = -half - a;                          // 離橋頭還有多遠（負的代表已經過了橋頭）
       const on = Math.abs(along) <= half && Math.abs(across) < d.hw;
       let mode = null, rank = 0;
+      // 只有大致朝著橋走（偏差 40 度以內）才幫忙對準；只是從橋頭旁邊經過，不會被拉上橋
       if (on) { if (a < half) { mode = 'on'; rank = -1; } }
-      else if (de > 0 && de < 3.5 && Math.abs(across) < 3.2) { mode = 'in'; rank = de; }
-      else if (de <= 0 && de > -1.6 && Math.abs(across) < d.hw + 1.2) { mode = 'back'; rank = 4; }
-      if (mode && (!best || rank < best.rank)) best = { d, ax, az, px, pz, along, across, s, de, mode, rank };
+      else if (al >= 0.76 && de > 0 && de < 3.5 && Math.abs(across) < 3.2) { mode = 'in'; rank = de; }
+      else if (al >= 0.76 && de <= 0 && de > -1.6 && Math.abs(across) < d.hw + 1.2) { mode = 'back'; rank = 4; }
+      if (mode && (!best || rank < best.rank)) best = { d, ax, az, px, pz, along, across, s, de, mode, rank, al };
     }
     if (!best) return [dx, dz];
-    const { d, ax, az, px, pz, across, s, de, mode } = best;
+    const { d, ax, az, px, pz, across, s, de, mode, al } = best;
     let fx, fz, k;
     if (mode === 'in') {                             // 還沒上橋：在抵達橋頭前把橫向偏移修正到 0
       const lat = Math.max(-2.5, Math.min(2.5, -across / Math.max(de, 0.35)));
-      fx = ax * s + px * lat; fz = az * s + pz * lat; k = de < 2.5 ? 0.92 : 0.6;
+      const align = Math.min(1, (al - 0.76) / 0.12); // 越對準橋，幫忙越多
+      fx = ax * s + px * lat; fz = az * s + pz * lat; k = (de < 2.5 ? 0.92 : 0.6) * (0.4 + 0.6 * align);
     } else if (mode === 'on') {                      // 在橋上：保持在中線附近
       const lat = Math.max(-1, Math.min(1, -across * 1.5));
       fx = ax * s + px * lat; fz = az * s + pz * lat; k = 0.7;
@@ -619,8 +625,40 @@ export class World {
     return pts;
   }
 
+  /**
+   * 天色：0 = 晴朗的上午，1 = 黃昏（放煙火時）。天空、霧、天光、陽光一起變；曝光由 main 調整。
+   * 煙火炸開時，flash 讓整座島被照亮一下。
+   */
+  setDusk(k) {
+    if (!this.day) this.day = { fog: this.scene.fog.color.clone(), hemi: this.hemi.color.clone(), ground: this.hemi.groundColor.clone(), sun: this.sun.color.clone(), hi: this.hemi.intensity, si: this.sun.intensity };
+    this.dusk = k;
+    this.sky.setDusk(k);
+    this.scene.fog.color.copy(this.day.fog).lerp(_dFog, k);
+    this.hemi.color.copy(this.day.hemi).lerp(_dSky, k);
+    this.hemi.groundColor.copy(this.day.ground).lerp(_dGround, k);
+    this.sun.color.copy(this.day.sun).lerp(_dSun, k);
+    this.sun.intensity = this.day.si * (1 - 0.72 * k);
+    this.water.setDusk(k);
+    // 遠山、山腰的雲霧轉成暮色；石燈的光變得明顯
+    for (const m of this.hillMats || []) m.color.setRGB(1, 1, 1).lerp(_dHill, k);
+    this.mist.children.forEach((m) => m.material.color.setRGB(1, 1, 1).lerp(_dMist, k));
+    if (this.sprites[0]) { const gm = this.sprites[0].material; gm.userData.op ??= gm.opacity; gm.opacity = gm.userData.op * (1 + 1.2 * k); }
+    this.#applyFlash();
+  }
+  flash(color, k) {
+    this.flashK = Math.min(1.2, (this.flashK || 0) + k);
+    (this.flashC ||= new THREE.Color()).set(color);
+  }
+  #applyFlash() {
+    if (!this.day) return;
+    const f = this.flashK || 0;
+    this.hemi.intensity = this.day.hi * (1 - 0.4 * (this.dusk || 0)) + f * 0.9;
+    if (f > 0.001) this.hemi.color.lerp(this.flashC, Math.min(0.5, f * 0.5));
+  }
+
   update(t, dt = 0.016) {
     WIND.value = t;
+    if (this.flashK > 0.001) { this.flashK *= Math.exp(-5 * dt); this.setDusk(this.dusk || 0); }
     for (const fn of [...this.animated]) fn(t, dt);
     for (const s of this.sprites) {
       const f = s.userData.flicker ?? 0;
@@ -630,3 +668,5 @@ export class World {
 }
 
 const _p = new THREE.Vector3(), _r = new THREE.Vector3(), _u = new THREE.Vector3(), _q = new THREE.Vector3(), _s = new THREE.Vector3();
+const _dFog = new THREE.Color('#2e3552'), _dSky = new THREE.Color('#7d86b8'), _dGround = new THREE.Color('#3b3448'), _dSun = new THREE.Color('#ff9a62');
+const _dHill = new THREE.Color('#2b2f4c'), _dMist = new THREE.Color('#5a5b7a');

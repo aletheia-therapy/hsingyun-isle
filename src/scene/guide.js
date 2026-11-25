@@ -5,6 +5,7 @@ import * as THREE from 'three';
  * 加上目標位置的一道柔和光柱。玩家只要跟著箭頭走，就會走到光柱裡。
  */
 const MAX = 64, GAP = 1.25;
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _pos = new THREE.Vector3(), _one = new THREE.Vector3(1, 1, 1);
 
 function chevronTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -26,19 +27,26 @@ export class Guide {
     this.dist = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1);
     geo.setAttribute('aD', this.dist);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: this.time, uMap: { value: chevronTexture() }, uLen: { value: 1 } },
+      uniforms: { uTime: this.time, uMap: { value: chevronTexture() }, uPlayer: { value: new THREE.Vector2() } },
       transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+      // aD：離目標還有幾公尺（箭頭固定在地上，不會跟著人跳動）；靠近腳邊的箭頭每一幀依實際距離淡出
       vertexShader: /* glsl */`
-        attribute float aD; varying float vD; varying vec2 vUv;
-        void main() { vUv = uv; vD = aD; gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0); }`,
+        attribute float aD; uniform vec2 uPlayer; varying float vD; varying float vNear; varying vec2 vUv;
+        void main() {
+          vUv = uv; vD = aD;
+          vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          vec4 c = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          vNear = smoothstep(0.7, 2.2, distance(c.xz, uPlayer));
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
       fragmentShader: /* glsl */`
-        uniform sampler2D uMap; uniform float uTime; uniform float uLen; varying float vD; varying vec2 vUv;
+        uniform sampler2D uMap; uniform float uTime; varying float vD; varying float vNear; varying vec2 vUv;
         void main() {
           vec4 c = texture2D(uMap, vUv);
-          float wave = fract(vD / 7.0 - uTime * 0.55);
+          float wave = fract(vD / 7.0 + uTime * 0.55);
           float pulse = 0.7 + 0.3 * smoothstep(0.65, 1.0, wave);
-          float near = smoothstep(0.5, 1.8, vD);
-          float far = 1.0 - smoothstep(uLen - 1.2, uLen, vD) * 0.5;
+          float near = vNear;
+          float far = 0.5 + 0.5 * smoothstep(0.9, 2.1, vD);
           gl_FragColor = vec4(c.rgb * (0.9 + 0.4 * pulse), min(1.0, c.a * 1.1) * pulse * near * far);
           #include <colorspace_fragment>
         }`,
@@ -148,6 +156,7 @@ export class Guide {
 
   update(dt, player, ground) {
     this.time.value += dt;
+    this.trail.material.uniforms.uPlayer.value.copy(player);
     if (!this.target) return;
     // 光柱
     const all = [this.target, ...(this.extras || [])].slice(0, this.beams.length);
@@ -166,10 +175,11 @@ export class Guide {
     this.t = 0;
     const pts = this.#route(player);
     this.points = pts;
-    // 每 GAP 公尺放一個箭頭
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
-    let along = 0, k = 0, carry = 1.1;
+    // 每 GAP 公尺放一個箭頭。位置以「離目標的距離」對齊，人往前走時箭頭固定在地上、走過就消失，不會一直跳動
+    const m = _m, q = _q, up = _up, pos = _pos, one = _one;
     const total = pts.reduce((s, p, i) => (i ? s + p.distanceTo(pts[i - 1]) : 0), 0);
+    const end = total - 0.9;
+    let along = 0, k = 0, carry = end - GAP * Math.floor((end - 0.4) / GAP);
     this.next = null;
     for (let i = 0; i < pts.length - 1 && k < MAX; i++) {
       const a = pts[i], b = pts[i + 1], L = a.distanceTo(b);
@@ -185,14 +195,13 @@ export class Guide {
         pos.set(x, ground(x, z) + 0.07, z);
         m.compose(pos, q, one);
         this.trail.setMatrixAt(k, m);
-        this.dist.setX(k, d);
+        this.dist.setX(k, total - d);
         k++; s += GAP;
       }
       carry = s - L; along += L;
     }
     if (!this.next) this.next = this.target.clone();
     this.trail.count = k;
-    this.trail.material.uniforms.uLen.value = Math.min(total, k * GAP + 1);
     this.trail.instanceMatrix.needsUpdate = true;
     this.dist.needsUpdate = true;
     this.remaining = total;

@@ -12,6 +12,7 @@ export function createWater(sunDir) {
     {
       uTime: { value: 0 },
       uSun: { value: sunDir.clone().normalize() },
+      uDusk: { value: 0 },
     },
   ]);
   const mat = new THREE.ShaderMaterial({
@@ -39,6 +40,7 @@ export function createWater(sunDir) {
     fragmentShader: /* glsl */`
       uniform float uTime;
       uniform vec3 uSun;
+      uniform float uDusk;
       varying vec3 vWorld;
       varying vec3 vN;
       #include <fog_pars_fragment>
@@ -78,13 +80,15 @@ export function createWater(sunDir) {
         vec3 r = reflect(-v, n);
         float ry = clamp(r.y, 0.0, 1.0);
         vec3 sky = mix(vec3(0.78, 0.84, 0.88), vec3(0.30, 0.50, 0.78), smoothstep(0.0, 0.6, ry));
+        sky = mix(sky, mix(vec3(0.42, 0.26, 0.24), vec3(0.04, 0.05, 0.12), smoothstep(0.0, 0.5, ry)), uDusk);   // 黃昏的天空倒影
+        body *= 1.0 - 0.45 * uDusk;
         vec3 col = mix(body, sky, clamp(fres * 0.8 + 0.04, 0.0, 1.0) * (inland > 0.5 ? 0.75 : 1.0));
 
         // 陽光的反光
         float sd = max(dot(r, normalize(uSun)), 0.0);
         col += vec3(1.0, 0.94, 0.8) * (pow(sd, 400.0) * 2.2 + pow(sd, 40.0) * 0.06) * (1.0 - smoothstep(1.6, 3.2, d));
         // 遠處融入天邊的薄霧
-        col = mix(col, vec3(0.74, 0.81, 0.85), smoothstep(2.0, 5.0, d) * 0.8);
+        col = mix(col, mix(vec3(0.74, 0.81, 0.85), vec3(0.13, 0.13, 0.22), uDusk), smoothstep(2.0, 5.0, d) * 0.8);
 
         // 岸邊：一圈細細的濕潤水線與零星的白浪
         float shore = d - 0.995;
@@ -103,5 +107,5 @@ export function createWater(sunDir) {
   geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = 0.0;
-  return { mesh, update: (t) => { uniforms.uTime.value = t; } };
+  return { mesh, update: (t) => { uniforms.uTime.value = t; }, setDusk: (k) => { uniforms.uDusk.value = k; } };
 }
