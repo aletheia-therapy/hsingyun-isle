@@ -100,10 +100,17 @@ export function mount(el, spot, ctx) {
     el.querySelector('.vw-dl').href = url;
     const share = el.querySelector('.vw-share');
     const blob = await (await fetch(url)).blob();
+    // 在 claude.ai 預覽中，一般下載連結會被擋下，改用平台的下載功能
+    el.querySelector('.vw-dl').onclick = async (ev) => {
+      const use = window.claude?.use;
+      if (typeof use !== 'function') return;
+      ev.preventDefault();
+      try { const dls = await use('downloads'); if (dls) await dls.save({ filename: '星雲之島-願行卡.png', data: blob }); } catch { /* 使用者取消 */ }
+    };
     const file = new File([blob], '星雲之島-願行卡.png', { type: 'image/png' });
     if (navigator.canShare?.({ files: [file] })) {
       share.hidden = false;
-      share.onclick = () => navigator.share({ files: [file], title: '我的願行卡', text: text }).catch(() => {});
+      share.onclick = () => { try { navigator.share({ files: [file], title: '我的願行卡', text }).catch(() => {}); } catch { /* 不支援 */ } };
     }
     wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });

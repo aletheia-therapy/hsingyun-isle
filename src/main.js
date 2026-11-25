@@ -301,7 +301,11 @@ function boot() {
     $('modal-body').innerHTML = which === 'about' ? ABOUT : GUIDE;
     modal.hidden = false;
     modal.querySelector('.modal-close').focus();
-    modal.querySelector('[data-reset]')?.addEventListener('click', () => { if (confirm('確定要清除這台裝置上的學習進度與對話紀錄嗎？')) { state.reset(); closeModal(); } });
+    modal.querySelector('[data-reset]')?.addEventListener('click', (e) => {
+      const b = e.currentTarget;
+      if (b.dataset.armed) { state.reset(); closeModal(); toast('已清除學習進度'); return; }
+      b.dataset.armed = '1'; b.textContent = '再按一次確認清除（無法復原）';
+    });
   }
   function closeModal() { modal.hidden = true; }
   modal.querySelector('.modal-close').addEventListener('click', closeModal);
