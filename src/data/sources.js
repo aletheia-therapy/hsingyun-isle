@@ -100,4 +100,32 @@ export const SOURCES = {
     t: '〈悟貫人間〉專題：人間淨土與四句教的價值標準',
     u: 'https://buddhism.lib.ntu.edu.tw/FT/JA/714748.pdf',
   },
+  shishan: {
+    t: '《佛說十善業道經》（實叉難陀譯，維基文庫）',
+    u: 'https://zh.wikisource.org/wiki/%E4%BD%9B%E8%AF%B4%E5%8D%81%E5%96%84%E4%B8%9A%E9%81%93%E7%BB%8F',
+  },
+  shishanMgmt: {
+    t: '星雲大師〈《十善業道經》的管理法〉《人間佛教學報．藝文》第十期',
+    u: 'https://buddhism.lib.ntu.edu.tw/FULLTEXT/JR-BJ010/bj010580292.pdf',
+  },
+  jdh: {
+    t: '星雲大師〈人間佛教的戒定慧（上）〉《普門學報》第 37 期（2007）',
+    u: 'https://buddhism.lib.ntu.edu.tw/FULLTEXT/JR-MAG/mag143984.pdf',
+  },
+  banfa: {
+    t: '星雲大師〈有佛法就有辦法〉《人間佛教學報．藝文》第四十九期',
+    u: 'https://buddhism.lib.ntu.edu.tw/FT/JA/698896.pdf',
+  },
+  jieyuan: {
+    t: '國際佛光會〈佛光會員應如何廣結善緣〉（佛光世界）',
+    u: 'https://web.blia.org/%E9%97%9C%E6%96%BC%E4%BD%9B%E5%85%89%E6%9C%83/%E4%BD%9B%E5%85%89%E4%B8%96%E7%95%8C/%E4%BD%9B%E5%85%89%E6%9C%83%E5%93%A1%E6%87%89%E5%A6%82%E4%BD%95%E5%BB%A3%E7%B5%90%E5%96%84%E7%B7%A3',
+  },
+  daocidi: {
+    t: '李勇〈星雲大師的人間佛教道次第思想研究〉（先結人緣後成佛道）',
+    u: 'https://buddhism.lib.ntu.edu.tw/FULLTEXT/JR-MAG/mag576078.pdf',
+  },
+  wujie: {
+    t: '星雲大師〈三皈五戒的人間意義〉《人間佛教學報．藝文》第五十八期',
+    u: 'https://buddhism.lib.ntu.edu.tw/FT/JA/714768.pdf',
+  },
 };

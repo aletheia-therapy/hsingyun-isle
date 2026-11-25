@@ -17,10 +17,14 @@ const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia('(max-width: 860px)').matches;
 const touch = matchMedia('(pointer: coarse)').matches;
 const TALK_R = 2.4;
+/** 走路速度（公尺／秒）；帶路時島民跟得上 */
+const WALK = 5.6, FOLLOW = 6.2;
 /** 建議路線：沿著島走一圈（山門 → 三好村 → 四給街 → 講堂 → 影音堂 → 山頂），每一站都在上一站附近 */
 const ORDER = ['origin', 'deed', 'speech', 'heart', 'confidence', 'hope', 'joy', 'ease', 'lecture', 'media', 'vowterrace'];
 const NUM = '①②③④⑤⑥⑦⑧⑨⑩⑪';
 const INTRO_KEY = 'hsingyun-isle:intro';
+const WORKS = new Set(['book', 'easel', 'pot']);
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 
 function fail(msg) {
   $('error-msg').textContent = msg;
@@ -50,6 +54,7 @@ function boot() {
   const t0 = performance.now();
   const world = new World(SPOTS, { lowPower });
   const ground = (x, z) => world.groundAt(x, z);
+  const walkable = (x, z) => world.walkable(x, z);
   const view = new TPCamera(ground);
   const explorer = new Explorer();
   explorer.ground = ground;
@@ -59,9 +64,11 @@ function boot() {
   view.follow(START[0], 0, START[1]);
   const guide = new Guide(world);
   const buildMs = Math.round(performance.now() - t0);
+  /** 會轉頭看旅人的任務人物 */
+  const watchers = [...world.items.values()].flat().filter((it) => it.watch);
 
   /* ---------- 狀態 ---------- */
-  let onIsland = false, here = null, nearId = null, navTarget = null, running = false, stillT = 0;
+  let onIsland = false, here = null, nearId = null, nearItem = null, navTarget = null, stillT = 0, talking = null, inRef = null;
   const keys = new Set();
   const joy = new THREE.Vector2();
   const chatSubs = new Set();
@@ -71,6 +78,7 @@ function boot() {
   const taskOf = (spotId) => TASKS.find((t) => t.id === spotOf(spotId)?.task);
   const labelOf = (s) => { const t = taskOf(s.id); return t ? `${t.npc.name}（${t.virtue}）` : s.npc ? `導覽員 ${s.npc.name}` : s.place; };
   const brightness = () => SPOTS.filter((s) => state.isDone(s.id)).length / SPOTS.length;
+  const itemsOf = (taskId) => world.items.get(taskId) || [];
   let glowNow = brightness();
   state.on((s) => {
     renderLists();
@@ -98,18 +106,30 @@ function boot() {
   /* ---------- 名牌：每位島民頭上都有名字、要幫的事與狀態 ---------- */
   const tagsEl = $('pins');
   const tags = new Map();
-  for (const s of SPOTS) {
-    const t = taskOf(s.id), z = ZONES.find((x) => x.id === s.zone);
+  const makeTag = (color, name, sub) => {
     const el = document.createElement('button');
     el.type = 'button'; el.tabIndex = -1; el.className = 'tag';
-    el.style.setProperty('--zc', t?.color || z.color);
-    const name = t ? t.npc.name : s.npc ? s.npc.name : s.place;
-    const sub = t ? t.virtue : s.npc ? '導覽員' : z.sub;
+    el.style.setProperty('--zc', color);
     el.innerHTML = `<i class="tag-st" aria-hidden="true"></i><b>${esc(name)}</b><small>${esc(sub)}</small><span class="tag-goal">目標</span>`;
-    el.addEventListener('click', () => setNav(s.id));
     tagsEl.appendChild(el);
     el.style.visibility = 'hidden';
+    return el;
+  };
+  for (const s of SPOTS) {
+    const t = taskOf(s.id), z = ZONES.find((x) => x.id === s.zone);
+    const el = makeTag(t?.color || z.color, t ? t.npc.name : s.npc ? s.npc.name : s.place, t ? t.virtue : s.npc ? '導覽員' : z.sub);
+    el.addEventListener('click', () => setNav(s.id));
     tags.set(s.id, { el, npc: !!(t || s.npc), last: '', vis: 'hidden' });
+  }
+  /** 任務人物（組員）與心火的名牌：任務進行中才出現 */
+  const itemTags = [];
+  for (const t of TASKS) {
+    itemsOf(t.id).forEach((it, i) => {
+      if (!it.talk) return;
+      const el = makeTag(t.color, it.talk.name, it.talk.role || '');
+      el.dataset.st = 'need'; el.classList.add('tag-item');
+      itemTags.push({ el, t, i, it, h: it.kind === 'person' ? 2.1 : 1.75, vis: 'hidden' });
+    });
   }
   function tagStatus(id) {
     if (state.isDone(id)) return 'done';
@@ -163,6 +183,17 @@ function boot() {
     requestAnimationFrame(() => el.classList.add('is-in'));
     setTimeout(() => { el.classList.remove('is-in'); setTimeout(() => el.remove(), 500); }, 2600);
   }
+  /** 找到小安的作品時，畫面下方浮出的小卡（不擋路，幾秒後自己消失） */
+  let discoverT = 0;
+  function discover(t, idx) {
+    const msg = t.quest.msgs?.[idx]; if (!msg) return;
+    const pr = questProgress(t.id), el = $('discover');
+    el.style.setProperty('--tc', t.color);
+    el.innerHTML = `<b>✦ 找到了（${pr.done} / ${pr.total}）</b><p>${esc(msg)}</p>`;
+    el.hidden = false; el.classList.remove('is-in'); void el.offsetWidth; el.classList.add('is-in');
+    clearTimeout(discoverT);
+    discoverT = setTimeout(() => { el.classList.remove('is-in'); setTimeout(() => { el.hidden = true; }, 400); }, 5500);
+  }
 
   /* ---------- 島上任務 ---------- */
   const activeQuest = () => {
@@ -171,16 +202,21 @@ function boot() {
   };
   const questProgress = (taskId) => {
     const t = TASKS.find((x) => x.id === taskId);
-    if (t.quest.type === 'escort' || t.quest.type === 'still') return { done: state.get().tasks[taskId]?.quest === 'done' ? 1 : 0, total: 1 };
-    const list = world.items.get(taskId) || [];
+    if (t.quest.type === 'escort') return { done: state.get().tasks[taskId]?.quest === 'done' ? 1 : 0, total: 1 };
+    const list = itemsOf(taskId);
     return { done: list.filter((i) => i.done).length, total: list.length };
   };
+  /** 讓這個任務還沒完成的物件出現（心火要等靜心之後才燃起） */
+  function showQuestItems(t) {
+    const list = itemsOf(t.id);
+    list.forEach((it) => { if (!it.done) it.group.visible = it.kind === 'fire' ? list[0].done : true; });
+  }
   function startQuest(taskId) {
     const cur = activeQuest();
     if (cur && cur.task.id !== taskId) { toast(`請先完成：${cur.task.quest.label}`); return; }
     const t = TASKS.find((x) => x.id === taskId);
     state.setTask(taskId, { quest: 'active' });
-    (world.items.get(taskId) || []).forEach((it) => { if (!it.done) it.group.visible = true; });
+    showQuestItems(t);
     closeCard();
     toast(`任務開始：${t.quest.label}`);
     hint('看畫面上方的「目前目標」，跟著地上的金色箭頭走。', 6000);
@@ -195,17 +231,50 @@ function boot() {
     } else {
       toast(`✦ 完成！回去找${q.task.npc.name}吧`);
     }
+    obT = 1;
     renderLists();
+  }
+  /** 完成任務裡的一件事：記錄進度（重新整理也不會不見）、加善念值，全部完成就結束任務 */
+  function gotItem(t, idx, pts) {
+    const it = itemsOf(t.id)[idx];
+    it.collect();
+    const got = state.get().tasks[t.id]?.got || [];
+    state.setTask(t.id, { got: got.includes(idx) ? got : [...got, idx] });
+    const p = state.addPoints(`q:${t.id}:${idx}`, pts); if (p) floatPoints(p);
+    obT = 1;
+    const pr = questProgress(t.id);
+    if (pr.done >= pr.total) { finishQuest({ task: t, spot: SPOTS.find((s) => s.task === t.id) }); return true; }
+    return false;
+  }
+  function stillTick(q, it, dt, onDone) {
+    const p = explorer.pos, gp = it.group.position;
+    const near = Math.hypot(gp.x - p.x, gp.z - p.y) < 1.6;
+    const br = $('breath');
+    if (near && !explorer.manualMoving) {
+      stillT += dt;
+      br.hidden = false;
+      const ph = (stillT % 4) / 4;
+      br.querySelector('i').style.transform = `scale(${0.55 + 0.45 * Math.sin(ph * Math.PI)})`;
+      br.querySelector('b').textContent = ph < 0.5 ? '吸氣……' : '吐氣……';
+      br.querySelector('small').textContent = `第 ${Math.min(3, Math.floor(stillT / 4) + 1)} / 3 次呼吸`;
+      br.querySelector('span').textContent = '站著不要動，跟著光圈慢慢呼吸';
+      if (stillT >= q.task.quest.secs) { br.hidden = true; stillT = 0; onDone(); }
+    } else if (near) {
+      br.hidden = false;
+      br.querySelector('b').textContent = '先停下來';
+      br.querySelector('small').textContent = '';
+      br.querySelector('span').textContent = touch ? '放開搖桿，站在蒲團上不要動' : '放開方向鍵，站在蒲團上不要動';
+    } else { br.hidden = true; stillT = 0; }
   }
   function questTick(dt) {
     const q = activeQuest();
     if (!q) return;
-    const p = explorer.pos;
-    if (q.task.quest.type === 'escort') {
+    const p = explorer.pos, type = q.task.quest.type, list = itemsOf(q.task.id);
+    if (type === 'escort') {
       const v = world.npcs.get(q.spot.id);
       const g = v.group.position, d = Math.hypot(p.x - g.x, p.y - g.z);
       if (d > 1.6) {
-        const step = Math.min(d - 1.4, (running ? 11 : 7.5) * dt);
+        const step = Math.min(d - 1.4, FOLLOW * dt);
         const dx = (p.x - g.x) / d, dz = (p.y - g.z) / d;
         g.x += dx * step; g.z += dz * step; g.y = ground(g.x, g.z);
         v.group.rotation.y = Math.atan2(dx, dz); v.moving = true;
@@ -215,53 +284,112 @@ function boot() {
       if (Math.hypot(p.x - to.x, p.y - to.y) < TALK_R && d < 3) { v.moving = false; finishQuest(q); }
       return;
     }
-    if (q.task.quest.type === 'still') {
-      const it = world.items.get(q.task.id)[0], gp = it.group.position;
-      const near = Math.hypot(gp.x - p.x, gp.z - p.y) < 1.6;
-      const br = $('breath');
-      if (near && !explorer.manualMoving) {
-        stillT += dt;
-        br.hidden = false;
-        const ph = (stillT % 4) / 4;
-        br.querySelector('i').style.transform = `scale(${0.55 + 0.45 * Math.sin(ph * Math.PI)})`;
-        br.querySelector('b').textContent = ph < 0.5 ? '吸氣……' : '吐氣……';
-        br.querySelector('small').textContent = `第 ${Math.min(3, Math.floor(stillT / 4) + 1)} / 3 次呼吸`;
-        br.querySelector('span').textContent = '站著不要動，跟著光圈慢慢呼吸';
-        if (stillT >= q.task.quest.secs) { br.hidden = true; stillT = 0; it.collect(); const pts = state.addPoints(`q:${q.task.id}:0`, 15); if (pts) floatPoints(pts); finishQuest(q); }
-      } else if (near) {
-        br.hidden = false;
-        br.querySelector('b').textContent = '先停下來';
-        br.querySelector('small').textContent = '';
-        br.querySelector('span').textContent = '放開方向鍵，站在蒲團上不要動';
-      } else { br.hidden = true; stillT = 0; }
+    if (type === 'heart') {
+      // 第一步：在蒲團上靜心呼吸；之後三把心火才會燃起（用對話熄滅）
+      if (!list[0].done) stillTick(q, list[0], dt, () => {
+        gotItem(q.task, 0, 15);
+        showQuestItems(q.task);
+        toast('心靜下來了。湖邊燃起了三把心火');
+        hint('走到火盆旁，選出用「戒、定、慧」哪一種方法熄滅它。', 7000);
+      });
       return;
     }
-    let got = false;
-    for (const it of world.items.get(q.task.id)) {
-      if (it.done) continue;
+    if (type === 'talk') return;                       // 組員：走近按 Enter 對話
+    list.forEach((it, i) => {
+      if (it.done || !it.group.visible) return;
       const gp = it.group.position;
-      if (Math.hypot(gp.x - p.x, gp.z - p.y) < (it.kind === 'lamp' ? 2.2 : 1.7)) { it.collect(); got = true; const pts = state.addPoints(`q:${q.task.id}:${world.items.get(q.task.id).indexOf(it)}`, 5); if (pts) floatPoints(pts); }
-    }
-    if (got) {
-      const pr = questProgress(q.task.id);
-      if (pr.done >= pr.total) finishQuest(q);
-      else toast(`${q.task.quest.item === 'lamp' ? '點亮了' : '撿到了'}！還差 ${pr.total - pr.done} 個`);
-    }
+      if (Math.hypot(gp.x - p.x, gp.z - p.y) < (it.kind === 'lamp' ? 2.2 : WORKS.has(it.kind) ? 2.1 : 1.7)) {
+        const fin = gotItem(q.task, i, 5);
+        if (WORKS.has(it.kind)) discover(q.task, i);
+        else if (!fin) { const pr = questProgress(q.task.id); toast(`${it.kind === 'lamp' ? '點亮了' : '撿到了'}！還差 ${pr.total - pr.done} 個`); }
+      }
+    });
   }
   function restoreQuests() {
     for (const t of TASKS) {
-      const st = state.get().tasks[t.id]?.quest;
-      const items = world.items.get(t.id) || [];
-      if (st === 'done') items.forEach((it) => { it.collect(); it.group.visible = it.kind === 'lamp' || it.kind === 'lotus'; });
-      if (st === 'active') {
-        if (t.quest.type === 'escort') state.setTask(t.id, { quest: undefined });      // 重新整理後從頭帶路
-        else items.forEach((it) => { if (!it.done) it.group.visible = true; });
+      if (!t.quest) continue;
+      const ts = state.get().tasks[t.id] || {}, list = itemsOf(t.id);
+      if (ts.quest === 'done' || (state.isDone(t.id) && t.quest.type !== 'escort')) {
+        list.forEach((it) => it.collect(true));
+      } else if (ts.quest === 'active') {
+        if (t.quest.type === 'escort') { state.setTask(t.id, { quest: undefined }); continue; }      // 重新整理後從頭帶路
+        (ts.got || []).forEach((i) => list[i]?.collect(true));
+        showQuestItems(t);
       }
     }
   }
 
+  /* ---------- 和組員說話、熄滅心火：畫面下方的對話框 ---------- */
+  const talkEl = $('talk');
+  function nearestTalkItem() {
+    const q = activeQuest();
+    if (!q || (q.task.quest.type !== 'talk' && q.task.quest.type !== 'heart')) return null;
+    const list = itemsOf(q.task.id), p = explorer.pos;
+    let best = null, bd = TALK_R;
+    list.forEach((it, i) => {
+      if (!it.talk || it.done || !it.group.visible) return;
+      const d = Math.hypot(it.group.position.x - p.x, it.group.position.z - p.y);
+      if (d < bd) { bd = d; best = { task: q.task, i, it }; }
+    });
+    return best;
+  }
+  const itemVerb = (n) => (n.it.talk.kind === 'fire' ? `熄滅「${n.it.talk.name}」` : `和 ${n.it.talk.name} 說話`);
+  function openTalk(n) {
+    const { task: t, i: idx, it } = n, d = it.talk, fire = d.kind === 'fire';
+    talking = { t, idx, it, miss: 0 };
+    keys.clear(); joy.set(0, 0);
+    const order = d.options.map((_, k) => k).sort(() => Math.random() - 0.5);
+    talkEl.style.setProperty('--tc', t.color);
+    talkEl.innerHTML = `
+      <div class="talk-box" role="dialog" aria-modal="true" aria-labelledby="talk-who" tabindex="-1">
+        <button type="button" class="icon-btn talk-x" aria-label="先離開">×</button>
+        <p class="talk-who" id="talk-who"><b>${esc(d.name)}</b><small>${esc(fire ? '心火・三毒之一' : d.role || '')}</small></p>
+        <p class="talk-line">${esc(fire ? d.line : `「${d.line}」`)}</p>
+        <p class="talk-ask">${fire ? '這把火，要用「戒、定、慧」哪一種方法熄滅？' : '你會怎麼回應？選一句能化解火氣的話。'}</p>
+        <div class="talk-opts">${order.map((k, j) => `<button type="button" class="opt" data-k="${k}"><b>${j + 1}</b><span>${esc(d.options[k].t)}</span></button>`).join('')}</div>
+        <div class="talk-why" aria-live="polite"></div>
+      </div>`;
+    talkEl.hidden = false;
+    document.body.classList.add('talk-open');
+    talkEl.querySelector('.talk-x').addEventListener('click', closeTalk);
+    talkEl.querySelectorAll('.talk-opts .opt').forEach((b) => b.addEventListener('click', () => pickTalk(b)));
+    setNear(null, null);
+    requestAnimationFrame(() => { talkEl.classList.add('is-in'); talkEl.querySelector('.talk-box').focus({ preventScroll: true }); });
+  }
+  function pickTalk(b) {
+    if (!talking) return;
+    const { t, idx, it } = talking, d = it.talk, o = d.options[Number(b.dataset.k)], fire = d.kind === 'fire';
+    const why = talkEl.querySelector('.talk-why');
+    if (!o.ok) {
+      talking.miss++;
+      b.disabled = true; b.classList.add('is-wrong');
+      why.innerHTML = `<p class="mg-no"><b>不太好喔。</b>${esc(o.why)}再選一次。</p>`;
+      return;
+    }
+    talkEl.querySelectorAll('.talk-opts .opt').forEach((x) => { x.disabled = true; x.classList.toggle('is-right', x === b); });
+    why.innerHTML = `<p class="mg-ok"><b>${fire ? `✦ ${esc(d.name)}熄滅了，化成一盞小蓮燈。` : `✦ ${esc(d.name)}的火氣消了。`}</b>${esc(o.why)}</p><button type="button" class="btn btn-primary talk-go">繼續</button>`;
+    const go = why.querySelector('.talk-go');
+    go.focus({ preventScroll: true });
+    go.addEventListener('click', () => {
+      const miss = talking?.miss || 0;
+      closeTalk();
+      if (!gotItem(t, idx, miss ? 3 : 5)) {
+        const pr = questProgress(t.id), left = pr.total - pr.done;
+        toast(fire ? `還有 ${left} 把心火` : `還有 ${left} 位組員`);
+      }
+    });
+  }
+  function closeTalk() {
+    talking = null;
+    talkEl.hidden = true; talkEl.classList.remove('is-in');
+    document.body.classList.remove('talk-open');
+    canvas.focus?.();
+    obT = 1;
+  }
+
   /* ---------- 目前目標：整個遊戲只有一個「下一步」，畫面上方、地上的箭頭與光柱都跟著它 ---------- */
   const v2 = (it) => new THREE.Vector2(it.group.position.x, it.group.position.z);
+  const nearest = (list) => { const p = explorer.pos; return list.reduce((b, it) => (b === null || v2(it).distanceToSquared(p) < v2(b).distanceToSquared(p) ? it : b), null); };
   function objective() {
     const st = state.get();
     const q = activeQuest();
@@ -271,21 +399,26 @@ function boot() {
         const to = world.spots.get(t.quest.to);
         return { kind: 'quest', tag: '任務', color: t.color, title: `帶${npc}走到「${to.place}」`, sub: `${npc}會跟在你身後`, target: to.frontV, key: 'esc:' + t.id, spot: t.quest.to };
       }
-      const items = world.items.get(t.id) || [];
-      if (type === 'still') {
-        return { kind: 'quest', tag: '任務', color: t.color, title: '走到湖邊發光的蒲團上，站著不要動', sub: '站好後，跟著畫面中間的光圈呼吸三次', target: v2(items[0]), key: 'still:' + t.id, still: true };
+      const items = itemsOf(t.id);
+      const pr = questProgress(t.id);
+      if (type === 'heart' && !items[0].done) {
+        return { kind: 'quest', tag: '任務・第 1 步', color: t.color, title: '走到湖邊發光的蒲團上，站著不要動', sub: '站好後，跟著畫面中間的光圈呼吸三次', target: v2(items[0]), key: 'still:' + t.id, still: true };
       }
-      const left = items.filter((it) => !it.done);
+      const left = items.filter((it) => !it.done && it.group.visible);
       if (left.length) {
-        const p = explorer.pos;
-        const best = left.reduce((b, it) => (it.group.position.distanceToSquared(new THREE.Vector3(p.x, it.group.position.y, p.y)) < b.group.position.distanceToSquared(new THREE.Vector3(p.x, b.group.position.y, p.y)) ? it : b));
-        const pr = questProgress(t.id);
-        return { kind: 'quest', tag: `任務 ${pr.done}/${pr.total}`, color: t.color, title: t.quest.label, sub: type === 'light' ? '走到發光的石燈旁，燈就會亮' : '走到光柱裡就會自動撿起來', target: v2(best), key: `item:${t.id}:${items.indexOf(best)}`, extras: left.filter((x) => x !== best).map(v2) };
+        const best = nearest(left), idx = items.indexOf(best);
+        const how = touch ? '點畫面下方的按鈕' : '按 Enter';
+        let title = t.quest.label, sub = '走到光柱裡就會自動撿起來', tag = `任務 ${pr.done}/${pr.total}`;
+        if (type === 'talk') sub = `走到 ${best.talk.name} 旁邊，${how}和他說話`;
+        else if (type === 'heart') { title = '熄滅湖邊的三把心火：貪・瞋・痴'; sub = `走到「${best.talk.name}」旁，${how}，選出熄滅它的方法`; tag = `任務・第 2 步 ${pr.done - 1}/${pr.total - 1}`; }
+        else if (type === 'light') sub = '走到發光的石燈旁，燈就會亮';
+        else if (WORKS.has(best.kind)) sub = '走到光柱那裡，看看小安做了什麼';
+        return { kind: 'quest', tag, color: t.color, title, sub, target: v2(best), key: `item:${t.id}:${idx}`, extras: left.filter((x) => x !== best).map(v2), item: best };
       }
     }
     for (const t of TASKS) if (t.quest && st.tasks[t.id]?.quest === 'done') {
       const s = SPOTS.find((x) => x.task === t.id);
-      if (!state.isDone(s.id)) return { kind: 'return', tag: '回報', color: t.color, title: `回去找 ${t.npc.name}`, sub: `告訴${t.npc.name}你幫好了`, target: world.spots.get(s.id).frontV, key: 'spot:' + s.id, spot: s.id };
+      if (!state.isDone(s.id)) return { kind: 'return', tag: '回報', color: t.color, title: `回去找 ${t.npc.name}`, sub: `告訴${t.npc.name}你幫好了，再完成「佛法挑戰」`, target: world.spots.get(s.id).frontV, key: 'spot:' + s.id, spot: s.id };
     }
     if (navTarget) {
       const s = world.spots.get(navTarget);
@@ -303,7 +436,7 @@ function boot() {
   }
 
   const obEl = $('objective'), obArrow = obEl.querySelector('.ob-arrow');
-  let obLast = '', obT = 0, ob = objective();
+  let obLast = '', obT = 0, ob = objective(), obSpot = null;
   function renderObjective(dt) {
     obT += dt;
     if (obT < 0.2) return;
@@ -313,8 +446,9 @@ function boot() {
     let sub = ob.sub;
     if (ob.target) {
       const d = Math.hypot(ob.target.x - p.x, ob.target.y - p.y);
-      const near = ob.spot && nearId === ob.spot;
-      if (near) sub = `${touch ? '點下方的按鈕' : '按 Enter'}，${talkVerb(ob.spot)}`;
+      const how = touch ? '點下方的按鈕' : '按 Enter';
+      if (nearItem && ob.item === nearItem.it) sub = `${how}，${itemVerb(nearItem)}`;
+      else if (ob.spot && nearId === ob.spot) sub = `${how}，${talkVerb(ob.spot)}`;
       else if (ob.still && d < 1.6) sub = '很好！站著不要動，跟著光圈呼吸';
       else sub = `${sub ? sub + '・' : ''}跟著地上的金色箭頭走${d > 3 ? `（還有 ${Math.round(guide.remaining ?? d)} 公尺）` : ''}`;
     }
@@ -325,7 +459,6 @@ function boot() {
       zoneList.querySelectorAll('.place').forEach((b) => b.setAttribute('aria-current', String(b.dataset.id === ob.spot)));
     }
   }
-  let obSpot = null;
   const talkVerb = (id) => { const s = spotOf(id), t = taskOf(id); return t ? `和 ${t.npc.name} 說話` : s.npc ? `和 ${s.npc.name} 說話` : `進入「${s.place}」`; };
 
   /** 地上箭頭與目標光圈 */
@@ -339,6 +472,13 @@ function boot() {
   /** 名牌（畫完 3D 之後投影到螢幕上）與「往哪走」的小箭頭 */
   const tmp = new THREE.Vector3();
   const setStyle = (tg, k, v) => { if (tg[k] !== v) { tg[k] = v; if (k === 'tr') tg.el.style.transform = v; else if (k === 'op') tg.el.style.opacity = v; else if (k === 'vis') tg.el.style.visibility = v; else tg.el.classList.toggle('is-target', v); } };
+  const place = (tg, isT, dd) => {
+    const x = (tmp.x + 1) / 2 * innerWidth, y = (1 - tmp.y) / 2 * innerHeight;
+    setStyle(tg, 'tr', `translate3d(${x.toFixed(0)}px, ${y.toFixed(0)}px, 0) translate(-50%, -100%)`);
+    setStyle(tg, 'isT', isT);
+    setStyle(tg, 'op', isT ? '1' : (Math.max(0.4, Math.min(1, (34 - dd) / 10))).toFixed(2));
+  };
+  const onScreen = () => tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.15;
   function updateTags() {
     const on = showWorld();
     for (const [id, tg] of tags) {
@@ -348,13 +488,23 @@ function boot() {
       const dd = Math.hypot(tmp.x - explorer.pos.x, tmp.z - explorer.pos.y);
       const isT = id === ob.spot;
       tmp.project(view.camera);
-      const vis = on && tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.15 && (dd < 34 || isT) && !(v && dd < 1.0);
+      const vis = on && onScreen() && (dd < 34 || isT) && !(v && dd < 1.0);
       setStyle(tg, 'vis', vis ? 'visible' : 'hidden');
-      if (!vis) continue;
-      const x = (tmp.x + 1) / 2 * innerWidth, y = (1 - tmp.y) / 2 * innerHeight;
-      setStyle(tg, 'tr', `translate3d(${x.toFixed(0)}px, ${y.toFixed(0)}px, 0) translate(-50%, -100%)`);
-      setStyle(tg, 'isT', isT);
-      setStyle(tg, 'op', isT ? '1' : (Math.max(0.4, Math.min(1, (34 - dd) / 10))).toFixed(2));
+      if (vis) place(tg, isT, dd);
+    }
+    const aq = activeQuest()?.task.id;
+    for (const tg of itemTags) {
+      const it = tg.it, gp = it.group.position;
+      let vis = on && aq === tg.t.id && it.group.visible && !it.done;
+      let dd = 0;
+      if (vis) {
+        tmp.set(gp.x, gp.y + tg.h, gp.z);
+        dd = Math.hypot(gp.x - explorer.pos.x, gp.z - explorer.pos.y);
+        tmp.project(view.camera);
+        vis = onScreen() && dd < 40 && dd > 0.8;
+      }
+      setStyle(tg, 'vis', vis ? 'visible' : 'hidden');
+      if (vis) place(tg, ob.item === it, dd);
     }
     if (on && ob.target && guide.next) {
       const p = explorer.pos, f = view.forward();
@@ -435,7 +585,7 @@ function boot() {
     explorer.faceTowards(s.at[0], s.at[1]);
     state.visit(id);
     if (navTarget === id) navTarget = null;
-    hint(''); prompt(null);
+    hint(''); setNear(null, null);
     if (!drawer.hidden && s.exp === 'lecture') closeDrawer();
     card.show(s, null);
     if (state.isDone(id)) card.setNext(nextLabel());
@@ -454,18 +604,24 @@ function boot() {
     reframe();
   }
 
-  /* ---------- 靠近互動 ---------- */
+  /* ---------- 靠近互動：島民的站點，或任務中的組員與心火 ---------- */
   const promptEl = $('prompt');
-  function prompt(id) {
-    if (id === nearId) return;
-    nearId = id;
-    if (!id) { promptEl.hidden = true; return; }
-    const s = spotOf(id), t = taskOf(id);
+  let nearKey = '';
+  function setNear(spotId, item) {
+    nearItem = item; nearId = item ? null : spotId;
+    const key = item ? `i:${item.task.id}:${item.i}` : spotId ? `s:${spotId}` : '';
+    if (key === nearKey) return;
+    nearKey = key;
+    if (!key) { promptEl.hidden = true; return; }
+    let what;
+    if (item) what = item.it.talk.kind === 'fire' ? `熄滅 <b>${esc(item.it.talk.name)}</b>` : `和 <b>${esc(item.it.talk.name)}</b> 說話`;
+    else { const s = spotOf(spotId), t = taskOf(spotId); what = t ? `和 <b>${esc(t.npc.name)}</b> 說話` : s.npc ? `和 <b>${esc(s.npc.name)}</b> 說話` : `進入 <b>${esc(s.place)}</b>`; }
     promptEl.hidden = false;
-    promptEl.innerHTML = `<kbd>${touch ? '點這裡' : 'Enter'}</kbd><span>${t ? `和 <b>${esc(t.npc.name)}</b> 說話` : s.npc ? `和 <b>${esc(s.npc.name)}</b> 說話` : `進入 <b>${esc(s.place)}</b>`}</span>`;
+    promptEl.innerHTML = `<kbd>${touch ? '點這裡' : 'Enter'}</kbd><span>${what}</span>`;
     obT = 1;
   }
-  promptEl.addEventListener('click', () => { if (nearId) openSpot(nearId); });
+  const interact = () => { if (nearItem) openTalk(nearItem); else if (nearId) openSpot(nearId); };
+  promptEl.addEventListener('click', interact);
   function nearestStation() {
     const p = explorer.pos;
     let best = null, bd = TALK_R;
@@ -485,6 +641,12 @@ function boot() {
   const intro = $('intro');
   addEventListener('keydown', (e) => {
     if (!intro.hidden) { if (e.key === 'Enter' || e.key === 'Escape' || e.code === 'Space') { e.preventDefault(); closeIntro(); } return; }
+    if (talking) {
+      if (e.key === 'Escape') { closeTalk(); return; }
+      const n = Number(e.key);
+      if (n >= 1 && n <= 3) { const b = talkEl.querySelectorAll('.talk-opts .opt')[n - 1]; if (b && !b.disabled) b.click(); }
+      return;
+    }
     if (e.key === 'Escape') {
       if (!$('modal').hidden) closeModal();
       else if (!drawer.hidden) closeDrawer();
@@ -493,16 +655,13 @@ function boot() {
     }
     if (typing(e) || !onIsland || card.open || !$('modal').hidden) return;
     if (MOVE[e.code]) { keys.add(e.code); e.preventDefault(); }
-    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.add('Shift');
-    if ((e.code === 'Enter' || e.code === 'Space') && nearId && drawer.hidden) { e.preventDefault(); openSpot(nearId); }
-    if (e.code === 'KeyM') { if (view.distT > 26) { view.distT = 19; view.pitchT = 0.58; } else { view.distT = 34; view.pitchT = 0.95; } }
+    if ((e.code === 'Enter' || e.code === 'Space') && (nearItem || nearId) && drawer.hidden) { e.preventDefault(); interact(); }
     if (e.code === 'KeyQ') keys.add('TurnL');
     if (e.code === 'KeyE') keys.add('TurnR');
-    if (e.code === 'KeyR' && !e.repeat) setRun(!running);
     if (e.code === 'Equal' || e.code === 'NumpadAdd') view.zoom(0.85);
     if (e.code === 'Minus' || e.code === 'NumpadSubtract') view.zoom(1.18);
   });
-  addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code.startsWith('Shift')) keys.delete('Shift'); if (e.code === 'KeyQ') keys.delete('TurnL'); if (e.code === 'KeyE') keys.delete('TurnR'); });
+  addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'KeyQ') keys.delete('TurnL'); if (e.code === 'KeyE') keys.delete('TurnR'); });
   addEventListener('blur', () => keys.clear());
   canvas.addEventListener('wheel', (e) => { if (!onIsland) return; e.preventDefault(); view.zoom(1 + e.deltaY * 0.001); }, { passive: false });
 
@@ -517,11 +676,6 @@ function boot() {
     const end = (e) => { if (e.pointerId !== id) return; id = null; joy.set(0, 0); knob.style.transform = ''; };
     pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
   }
-
-  /* ---------- 奔跑（一鍵切換） ---------- */
-  const runBtn = $('run-btn');
-  function setRun(v) { running = v; runBtn.setAttribute('aria-pressed', String(v)); runBtn.querySelector('span').textContent = v ? '奔跑中' : '奔跑'; }
-  runBtn.addEventListener('click', () => { setRun(!running); canvas.focus?.(); });
 
   /* ---------- 鏡頭 ---------- */
   function reframe() {
@@ -541,7 +695,7 @@ function boot() {
       const p = pts.get(e.pointerId); if (!p) return;
       if (pts.size === 1) view.orbit(e.clientX - p.x, e.clientY - p.y);
       p.x = e.clientX; p.y = e.clientY;
-      if (pts.size === 2 && pinch0) { const [a, b] = [...pts.values()]; view.distT = Math.min(34, Math.max(3.5, dist0 * pinch0 / Math.hypot(a.x - b.x, a.y - b.y))); }
+      if (pts.size === 2 && pinch0) { const [a, b] = [...pts.values()]; view.distT = Math.min(34, Math.max(3.5, dist0 * pinch0 / Math.hypot(a.x - b.x, a.y - b.y))); view.hold = 1.5; }
     });
     const end = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch0 = 0; };
     canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
@@ -566,9 +720,11 @@ function boot() {
   function enterIsland() {
     if (onIsland) return;
     onIsland = true;
+    loadingOut();
     $('home').classList.add('is-out');
     setTimeout(() => { $('home').hidden = true; }, 600);
     document.body.classList.add('on-island');
+    view.behind(explorer.facing);
     canvas.focus?.();
     let seen = false; try { seen = localStorage.getItem(INTRO_KEY) === '1'; } catch { /* 無痕模式 */ }
     if (!seen && !/[?&]nointro\b/.test(location.search)) openIntro();
@@ -578,12 +734,12 @@ function boot() {
     reframe();
   }
   function goHome() {
-    closeCard(); closeDrawer();
+    closeCard(); closeDrawer(); if (talking) closeTalk();
     onIsland = false;
     document.body.classList.remove('on-island');
     $('home').hidden = false;
     requestAnimationFrame(() => $('home').classList.remove('is-out'));
-    hint(''); prompt(null);
+    hint(''); setNear(null, null);
     reframe();
   }
   const modal = $('modal');
@@ -607,8 +763,24 @@ function boot() {
   const mbtn = $('music-btn');
   const paintMusic = () => { mbtn.setAttribute('aria-pressed', String(music.on)); mbtn.querySelector('span').textContent = music.on ? '音樂：開' : '音樂：關'; };
   mbtn.addEventListener('click', (e) => { e.stopPropagation(); music.set(!music.on); paintMusic(); });
+  music.onChange(paintMusic);
   paintMusic();
-  music.start();
+
+  /* ---------- 載入完成：能自動播放音樂就直接進首頁；被瀏覽器擋下時，點一下就伴著音樂開始 ---------- */
+  const loadingEl = $('loading');
+  function loadingOut() { loadingEl.classList.add('is-out'); }
+  function ready() {
+    if (!music.on) { loadingOut(); return; }
+    const slow = new Promise((r) => setTimeout(() => r('slow'), 1500));
+    Promise.race([music.start(), slow]).then((ok) => {
+      if (ok || loadingEl.classList.contains('is-out')) { loadingOut(); return; }
+      loadingEl.classList.add('is-gate');
+      loadingEl.innerHTML = '<button type="button" class="gate-btn"><span class="gate-note" aria-hidden="true">♪</span><b>點一下，進入星雲之島</b><small>伴著音樂開始</small></button>';
+      const btn = loadingEl.querySelector('.gate-btn');
+      loadingEl.addEventListener('click', () => { music.start(); loadingOut(); }, { once: true });      // 點畫面任何地方都可以
+      btn.focus({ preventScroll: true });
+    });
+  }
 
   /* ---------- 尺寸 ---------- */
   function resize() {
@@ -631,7 +803,7 @@ function boot() {
     const raw = clock.getDelta();
     const dt = Math.min(raw, 0.05) * timeScale;
     t += dt;
-    if (onIsland && !card.open && modal.hidden && intro.hidden) {
+    if (onIsland && !card.open && modal.hidden && intro.hidden && !talking) {
       mv.set(0, 0);
       for (const k of keys) if (MOVE[k]) { mv.x += MOVE[k][0]; mv.y += MOVE[k][1]; }
       mv.add(joy);
@@ -639,14 +811,20 @@ function boot() {
       if (keys.has('TurnR')) view.turn(-dt * 1.6);
       if (mv.lengthSq() > 0.01) {
         const len = Math.min(1, mv.length());
-        const F = view.forward(), R = view.right();
-        const dx = R.x * mv.x + F.x * mv.y, dz = R.y * mv.x + F.y * mv.y;
-        const speed = (running || keys.has('Shift') ? 10.5 : 6.6) * len;
-        explorer.stride = running || keys.has('Shift') ? 17 : 12.5;
-        explorer.drive(dx, dz, speed * dt, dt, (x, z) => world.walkable(x, z));
-      }
+        // 按住方向時，「往前」以剛開始按的那一刻的鏡頭為準：鏡頭轉到背後時，方向不會跟著一直變（不會繞圈圈）
+        const ang = Math.atan2(mv.x, mv.y);
+        if (!inRef || inRef.n !== view.manualN || Math.abs(angDiff(ang, inRef.ang)) > 0.6) inRef = { yaw: view.yaw, ang, n: view.manualN };
+        const F = view.forward(inRef.yaw), R = view.right(inRef.yaw);
+        let dx = R.x * mv.x + F.x * mv.y, dz = R.y * mv.x + F.y * mv.y;
+        const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+        [dx, dz] = world.bridgeAssist(explorer.pos.x, explorer.pos.y, dx, dz);      // 走到橋頭時，自動對準橋面
+        explorer.stride = 11.5;
+        const moved = explorer.drive(dx, dz, WALK * len * dt, dt, walkable);
+        view.autoFollow(explorer.facing, dt, moved);
+      } else { inRef = null; view.autoFollow(explorer.facing, dt, false); }
       questTick(dt);
-      prompt(nearestStation());
+      const ni = nearestTalkItem();
+      setNear(ni ? null : nearestStation(), ni);
       // 自選的目的地到了
       if (navTarget) { const s = world.spots.get(navTarget); if (Math.hypot(s.front[0] - explorer.pos.x, s.front[1] - explorer.pos.y) <= TALK_R) { navTarget = null; obT = 1; } }
     }
@@ -655,6 +833,7 @@ function boot() {
     world.follow(explorer.pos.x, explorer.pos.y, fw.x, fw.y);
     explorer.update(dt);
     for (const v of world.npcs.values()) v.watch(explorer.pos.x, explorer.pos.y);
+    for (const w of watchers) w.watch(explorer.pos.x, explorer.pos.y);
     if (onIsland) renderObjective(dt);
     // 島嶼光明度：善念越多，畫面越明亮
     glowNow += (brightness() - glowNow) * Math.min(1, dt * 1.5);
@@ -678,13 +857,13 @@ function boot() {
     }
   });
 
-  requestAnimationFrame(() => setTimeout(() => $('loading').classList.add('is-out'), 300));
+  requestAnimationFrame(() => setTimeout(ready, 300));
   document.fonts?.ready.then(() => reframe());
 
   // 自動化測試用（不影響使用者）
   window.__isle = {
-    world, explorer, card, view, state, renderer, guide, enterIsland, openDrawer, openSpot, startQuest, setNav, closeIntro,
-    keys, buildMs, get near() { return nearId; }, get objective() { return objective(); }, get pixelRatio() { return prNow; },
+    world, explorer, card, view, state, renderer, guide, enterIsland, openDrawer, openSpot, startQuest, setNav, closeIntro, openTalk,
+    keys, joy, buildMs, get near() { return nearId; }, get nearItem() { return nearItem; }, get talking() { return talking; }, get objective() { return objective(); }, get pixelRatio() { return prNow; },
     teleport(x, z) { explorer.place(x, z); },
     set timeScale(v) { timeScale = v; },
   };

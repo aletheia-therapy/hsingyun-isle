@@ -91,13 +91,15 @@ export class Guide {
   #entryNode(p) {
     const gph = this.world.graph;
     const ids = gph.nodes.map((n, i) => [i, n.distanceTo(p)]).sort((a, b) => a[1] - b[1]);
-    for (const [i, d] of ids.slice(0, 12)) if (d < 0.5 || this.#clear(gph.nodes[i], p)) return i;
+    for (const [i, d] of ids.slice(0, 16)) if (d < 0.5 || this.#clear(gph.nodes[i], p, 0.8)) return i;
     return ids[0][0];
   }
-  #clear(a, b) {
-    const n = Math.ceil(a.distanceTo(b) / 0.5);
+  /** a 到 b 之間能不能直線走過去；pad：終點前多少公尺不檢查（目標本身是人物或火盆，會擋路） */
+  #clear(a, b, pad = 0) {
+    const L = a.distanceTo(b), n = Math.ceil(L / 0.25);   // 每 25 公分檢查一次（橋的欄杆很窄，不能跳過）
     for (let i = 1; i < n; i++) {
-      const t = i / n, x = a.x + (b.x - a.x) * t, z = a.y + (b.y - a.y) * t;
+      const t = i / n; if ((1 - t) * L < pad) break;
+      const x = a.x + (b.x - a.x) * t, z = a.y + (b.y - a.y) * t;
       if (!this.world.walkable(x, z)) return false;
     }
     return true;
@@ -128,7 +130,7 @@ export class Guide {
     for (const [i, , d] of cand.slice(0, 24)) if (d < 0.6 || this.#clear(p, gph.nodes[i])) { start = i; break; }
     if (start < 0 && cand.length) start = cand.reduce((b, c) => (c[2] < b[2] ? c : b))[0];
     const viaCost = start >= 0 ? cand.find((c) => c[0] === start)[1] : Infinity;
-    if (direct < 14 && direct <= viaCost * 1.15 && this.#clear(p, tg)) return [p.clone(), tg.clone()];
+    if (direct < 14 && direct <= viaCost * 1.15 && this.#clear(p, tg, 0.8)) return [p.clone(), tg.clone()];
     if (start < 0) return [p.clone(), tg.clone()];
     const pts = [p.clone()];
     for (let v = start; v !== -1; v = next[v]) pts.push(gph.nodes[v].clone());

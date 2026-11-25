@@ -24,17 +24,31 @@ export class Explorer {
     this.manualMoving = false;
   }
 
-  /** 自由行走：朝 (dx, dz) 方向前進 dist 公尺，canWalk(x, z) 判斷能不能走；撞牆時沿牆滑動 */
+  /**
+   * 自由行走：朝 (dx, dz) 方向前進 dist 公尺，canWalk(x, z) 判斷能不能走。
+   * 撞到障礙（橋的欄杆、溪岸、牆）時，會試著往左右偏一點，沿著障礙滑過去，不會卡住。
+   */
   drive(dx, dz, dist, dt, canWalk) {
     const len = Math.hypot(dx, dz);
     if (len < 1e-4) { this.manualMoving = false; return false; }
     dx /= len; dz /= len;
-    this.facing = dampAngle(this.facing, Math.atan2(dx, dz), 12, dt);
-    const nx = this.pos.x + dx * dist, nz = this.pos.y + dz * dist;
-    let moved = false;
-    if (canWalk(nx, nz)) { this.pos.set(nx, nz); moved = true; }
-    else if (canWalk(nx, this.pos.y)) { this.pos.x = nx; moved = true; }
-    else if (canWalk(this.pos.x, nz)) { this.pos.y = nz; moved = true; }
+    const tryMove = (ux, uz, k) => {
+      const nx = this.pos.x + ux * dist * k, nz = this.pos.y + uz * dist * k;
+      if (!canWalk(nx, nz)) return false;
+      this.pos.set(nx, nz); return true;
+    };
+    let moved = tryMove(dx, dz, 1), mx = dx, mz = dz;
+    if (!moved) {
+      const pref = this.slideSign || 1;
+      outer: for (const a of [0.35, 0.7, 1.05, 1.4]) {
+        for (const sg of [pref, -pref]) {
+          const c = Math.cos(a * sg), s = Math.sin(a * sg);
+          const ux = dx * c - dz * s, uz = dx * s + dz * c;
+          if (tryMove(ux, uz, Math.max(0.25, Math.cos(a)))) { moved = true; mx = ux; mz = uz; this.slideSign = sg; break outer; }
+        }
+      }
+    }
+    if (moved) this.facing = dampAngle(this.facing, Math.atan2(mx, mz), 10, dt);
     this.manualMoving = moved;
     this.#sync();
     return moved;

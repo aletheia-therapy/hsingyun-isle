@@ -50,7 +50,7 @@
         <li><b>操作</b><span>自己走、自己幫忙</span></li>
         <li><b>互動</b><span>問答、遊戲、情境選擇</span></li>
       </ol>
-      <p class="home-keys">操作：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵走路・<kbd>R</kbd> 奔跑・拖曳畫面或 <kbd>Q</kbd><kbd>E</kbd> 轉視角・滾輪縮放・靠近島民按 <kbd>Enter</kbd> 對話</p>
+      <p class="home-keys">操作：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵走路（鏡頭會自動轉到你身後）・靠近人物按 <kbd>Enter</kbd> 對話・拖曳畫面或 <kbd>Q</kbd><kbd>E</kbd> 轉視角</p>
       <p class="home-note">本作品為獨立創作的數位教育平台，不代表佛光山或佛光大學官方製作或授權。</p>
     </div>
   </section>
@@ -87,7 +87,6 @@
   <div id="joystick" class="joystick" hidden aria-hidden="true"><i></i></div>
   <button type="button" id="music-btn" class="voice-btn music-btn" aria-pressed="true"><span>音樂：開</span></button>
   <button type="button" id="help-btn" class="help-btn" aria-label="怎麼玩"><span>?</span>怎麼玩</button>
-  <button type="button" id="run-btn" class="run-btn" aria-pressed="false"><kbd>R</kbd><span>奔跑</span></button>
 
   <button type="button" id="ai-fab" class="ai-fab" aria-label="開啟 AI 導覽">
     <span class="ai-fab-orb" aria-hidden="true"></span>
@@ -118,13 +117,15 @@
       <ol class="intro-steps">
         <li><i>1</i><div><b>看畫面上方</b><span>「目前目標」永遠告訴你下一步要做什麼</span></div></li>
         <li><i>2</i><div><b>跟著地上的金色箭頭</b><span>箭頭會帶你走到發光的光柱，人物頭上有名字</span></div></li>
-        <li><i>3</i><div><b class="k-desk">走到人物旁邊，按 Enter</b><b class="k-touch">走到人物旁邊，點畫面下方的按鈕</b><span>聽他說話、幫忙、選一選、玩小遊戲，得到善念值與徽章</span></div></li>
+        <li><i>3</i><div><b class="k-desk">走到人物旁邊，按 Enter</b><b class="k-touch">走到人物旁邊，點畫面下方的按鈕</b><span>聽他說話、完成島上任務，再通過「佛法挑戰」，就能點亮島上的一角</span></div></li>
       </ol>
-      <p class="intro-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵走路・<kbd>R</kbd> 奔跑・拖曳畫面轉視角・滾輪縮放</p>
-      <p class="intro-keys intro-touch">左下角搖桿走路・拖曳畫面轉視角・雙指縮放</p>
+      <p class="intro-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵走路，鏡頭會自動轉到你身後・拖曳畫面可以轉視角</p>
+      <p class="intro-keys intro-touch">左下角搖桿走路，鏡頭會自動轉到你身後・拖曳畫面可以轉視角</p>
       <button type="button" class="btn btn-primary btn-lg intro-go">知道了，出發！</button>
     </div>
   </div>
+  <div id="talk" class="talk" hidden></div>
+  <div id="discover" class="discover" role="status" hidden></div>
   <div id="levelup" class="levelup" hidden></div>
   <div id="breath" class="breath" hidden><i></i><b>吸氣……</b><small></small><span>站著不動，跟著光圈慢慢呼吸</span></div>
   <div id="loading" class="loading" role="status"><span class="loading-dot"></span>島嶼浮現中……</div>

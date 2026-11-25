@@ -73,26 +73,33 @@ export class PathGraph {
   }
 
   /** 步道跨過小溪的地方：回傳 [{ x, z, angle, len, y }]，用來放木橋 */
+  /**
+   * 步道跨過小溪的地方：回傳 [{ x, z, angle, len, h0, h1 }]，用來放木橋。
+   * 先找出每段步道上「溪水最深」的點，再沿步道方向往兩側量到乾地為止，
+   * 讓橋一定蓋住整段溪面（兩端各多 1.2 公尺），橋面從一岸的高度順順地接到另一岸。
+   */
   bridges() {
-    const out = [];
-    this.edges.forEach(([ia, ib]) => {
-      const a = this.nodes[ia], b = this.nodes[ib], len = a.distanceTo(b), n = Math.ceil(len / 0.25);
-      let inside = false, t0 = 0;
-      for (let i = 0; i <= n; i++) {
-        const p = new THREE.Vector2().lerpVectors(a, b, i / n);
-        const w = streamAt(p.x, p.y) > 0.05;
-        if (w && !inside) { inside = true; t0 = i / n; }
-        if ((!w || i === n) && inside) {
-          inside = false;
-          const tm = (t0 + i / n) / 2, c = new THREE.Vector2().lerpVectors(a, b, tm);
-          if (out.some((o) => Math.hypot(o.x - c.x, o.z - c.y) < 3)) continue;
-          const dir = new THREE.Vector2().subVectors(b, a).normalize();
-          const span = Math.max(4.4, (i / n - t0) * len + 2.4);
-          const e1 = c.clone().addScaledVector(dir, -span / 2), e2 = c.clone().addScaledVector(dir, span / 2);
-          out.push({ x: c.x, z: c.y, angle: Math.atan2(dir.x, dir.y), len: span, y: Math.max(0.5, Math.min(heightAt(e1.x, e1.y), heightAt(e2.x, e2.y))) });
-        }
-      }
+    const cands = [];
+    this.edges.forEach(([ia, ib], ei) => {
+      if (this.kinds[ei] === 'stair') return;
+      const a = this.nodes[ia], b = this.nodes[ib], len = a.distanceTo(b), n = Math.max(2, Math.ceil(len / 0.12));
+      let best = 0, bt = 0;
+      for (let i = 0; i <= n; i++) { const p = new THREE.Vector2().lerpVectors(a, b, i / n), w = streamAt(p.x, p.y); if (w > best) { best = w; bt = i / n; } }
+      if (best > 0.3) cands.push({ p: new THREE.Vector2().lerpVectors(a, b, bt), dir: new THREE.Vector2().subVectors(b, a).normalize(), w: best });
     });
+    cands.sort((u, v) => v.w - u.w);
+    const out = [];
+    for (const c of cands) {
+      if (out.some((o) => Math.hypot(o.x - c.p.x, o.z - c.p.y) < 3.5)) continue;
+      const wet = (s) => streamAt(c.p.x + c.dir.x * s, c.p.y + c.dir.y * s) > 0.01;
+      let s1 = 0; while (s1 < 9 && wet(s1)) s1 += 0.1;
+      let s0 = 0; while (s0 < 9 && wet(-s0)) s0 += 0.1;
+      const span = Math.max(4.6, s0 + s1 + 2.4);
+      const mid = c.p.clone().addScaledVector(c.dir, (s1 - s0) / 2);
+      const e0 = mid.clone().addScaledVector(c.dir, -span / 2), e1 = mid.clone().addScaledVector(c.dir, span / 2);
+      const h0 = Math.max(0.45, heightAt(e0.x, e0.y)), h1 = Math.max(0.45, heightAt(e1.x, e1.y));
+      out.push({ x: mid.x, z: mid.y, angle: Math.atan2(c.dir.x, c.dir.y), len: span, h0, h1, y: Math.min(h0, h1), hw: 1.0, arc: 0.3 });
+    }
     return out;
   }
 

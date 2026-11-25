@@ -17,6 +17,13 @@ export const SUN_DIR = new THREE.Vector3(36, 30, 22).normalize();
 export const HAZE = '#cfd8dc';
 const SHADOW_HALF = 30, SHADOW_MAP = 2048;
 
+/** 任務物件的種類：組員對話、湖邊先靜心（蒲團）再熄滅三把心火、或依 kinds 指定 */
+export const questKind = (q, i) => q.kinds?.[i] || (q.type === 'talk' ? 'person' : q.type === 'heart' ? (i === 0 ? 'lotus' : 'fire') : q.item);
+/** 一開始就在島上的物件（柳丁、感謝卡、心火要等任務開始才出現） */
+const ALWAYS_SHOWN = new Set(['lamp', 'lotus', 'person', 'book', 'easel', 'pot']);
+/** 物件的碰撞半徑 */
+const ITEM_R = { lamp: 0.3, person: 0.3, fire: 0.48, book: 0.6, easel: 0.42, pot: 0.32 };
+
 function rng(seed) {
   return () => {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
@@ -174,13 +181,16 @@ export class World {
     const pond2 = PONDS[1];
     const br = new THREE.Group(); archBridge(br, 7.4, 1.4); br.position.set(pond2.x, -0.05, pond2.z); br.rotation.y = 0.5; statics.add(br);
     this.reserved.push([pond2.x, pond2.z, 5]);
+    // 拱橋可以走：橋面高度 = 拱形，兩端接到岸上
+    this.decks = [{ x: pond2.x, z: pond2.z, angle: Math.PI / 2 + 0.5, len: 7.4, hw: 0.5, top: (t) => -0.05 + 0.39 + Math.sin(t * Math.PI) * 0.7, arch: true }];
 
     /* ---- 小溪上的木橋（步道跨溪處） ---- */
     this.bridges = this.graph.bridges();
     for (const b of this.bridges) {
-      const wb = new THREE.Group(); woodBridge(wb, b.len, 2.2);
+      const wb = new THREE.Group(); woodBridge(wb, b.len, 2.2, b.h0 - b.y, b.h1 - b.y, b.arc);
       wb.position.set(b.x, b.y, b.z); wb.rotation.y = b.angle - Math.PI / 2; statics.add(wb);
       this.reserved.push([b.x, b.z, b.len / 2 + 1]);
+      this.decks.push({ ...b, top: (t) => b.h0 + (b.h1 - b.h0) * t + Math.sin(t * Math.PI) * b.arc + 0.02 });
     }
 
     /* ---- 四給街：池邊的太湖石與石燈 ---- */
@@ -348,14 +358,21 @@ export class World {
         this.animated.push((t, dt) => v.update(dt));
       }
       if (task?.quest?.at) {
-        const list = task.quest.at.map(([x, z], i) => {
-          const it = questItem(task.quest.item, i);
-          it.group.position.set(x, heightAt(x, z), z);
-          it.group.visible = task.quest.type === 'light' || task.quest.type === 'still';
+        const q = task.quest;
+        const list = q.at.map(([x, z], i) => {
+          const kind = questKind(q, i);
+          const opt = kind === 'person' ? q.people[i] : kind === 'fire' ? q.fires[i - 1] : {};
+          const it = questItem(kind, i, opt);
+          // 放在斜坡上的物件：以底座範圍內最低的地面為準，不會一邊懸空
+          const y = kind === 'person' ? heightAt(x, z) : Math.min(heightAt(x, z), ...[[0.32, 0], [-0.32, 0], [0, 0.32], [0, -0.32]].map(([a, b]) => heightAt(x + a, z + b)));
+          it.group.position.set(x, y, z);
+          if (kind === 'person') it.group.rotation.y = Math.atan2(fx - x, fz - z);
+          it.group.visible = ALWAYS_SHOWN.has(kind);
           this.scene.add(it.group);
           this.animated.push((t, dt) => it.update(dt));
-          this.reserved.push([x, z, 1.2]);
-          if (it.kind === 'lamp') this.circles.push([x, z, 0.3]);
+          this.reserved.push([x, z, 1.4]);
+          const r = ITEM_R[kind];
+          if (r) this.circles.push([x, z, r]);
           return it;
         });
         this.items.set(task.id, list);
@@ -367,9 +384,11 @@ export class World {
   walkable(x, z) {
     const onDock = Math.abs(x - GATE.dock[0]) < 1.2 && z > GATE.dock[1] - 10 && z < GATE.dock[1] + 1.4;
     if (onDock) return true;
+    if (this.deckAt(x, z)) return true;                  // 橋面上
+    if (this.railAt(x, z)) return false;                 // 橋的欄杆
     if (islandD(x, z) > 0.9) return false;
     if (pondAt(x, z) > 0.42) return false;
-    if (streamAt(x, z) > 0.35 && this.groundAt(x, z) === heightAt(x, z)) return false;
+    if (streamAt(x, z) > 0.35) return false;
     for (const [cx, cz, r] of this.circles) if ((x - cx) ** 2 + (z - cz) ** 2 < r * r) return false;
     // 石階兩側的石欄：只能從上下兩端進出
     if (z < STAIR.z0 + 0.1 && z > STAIR.z1 - 0.1) { const d = Math.abs(x - STAIR.x); if (d > STAIR.hw - 0.05 && d < STAIR.hw + 0.4) return false; }
@@ -523,14 +542,72 @@ export class World {
     this.shadowTexel = (h * 2) / this.sun.shadow.mapSize.x;
   }
 
+  /** 站在哪一座橋上（橋面範圍內、欄杆內側）：回傳 { deck, t } 或 null */
+  deckAt(x, z) {
+    for (const d of this.decks || []) {
+      const dx = x - d.x, dz = z - d.z, ax = Math.sin(d.angle), az = Math.cos(d.angle);
+      const along = dx * ax + dz * az, across = -dx * az + dz * ax;
+      if (Math.abs(along) <= d.len / 2 && Math.abs(across) < d.hw) return { deck: d, t: along / d.len + 0.5 };
+    }
+    return null;
+  }
+
+  /** 橋的欄杆：橋面兩側（橋頭兩端除外）不能從旁邊跨進跨出 */
+  railAt(x, z) {
+    for (const d of this.decks || []) {
+      const dx = x - d.x, dz = z - d.z, ax = Math.sin(d.angle), az = Math.cos(d.angle);
+      const along = dx * ax + dz * az, across = Math.abs(-dx * az + dz * ax);
+      if (Math.abs(along) < d.len / 2 - 0.25 && across >= d.hw && across < d.hw + 0.45) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 過橋輔助：大致朝著橋走時，像漏斗一樣在抵達橋頭前把橫向的偏移修正掉，
+   * 上橋後保持在中線附近；如果已經走過橋頭卻在橋旁邊，先帶回橋頭。
+   * 沿著岸邊橫著走（和橋的方向差很多）時不干涉。回傳調整後的 [dx, dz]（單位向量）。
+   */
+  bridgeAssist(x, z, dx, dz) {
+    let best = null;
+    for (const d of this.decks || []) {
+      const ax = Math.sin(d.angle), az = Math.cos(d.angle), px = -az, pz = ax;
+      const rx = x - d.x, rz = z - d.z, half = d.len / 2;
+      const along = rx * ax + rz * az, across = rx * px + rz * pz;
+      const da = dx * ax + dz * az;
+      if (Math.abs(da) < 0.4) continue;              // 沿著岸邊橫著走：不干涉
+      const s = Math.sign(da), a = s * along;        // a：沿著前進方向的位置（-half 是入口，+half 是出口）
+      const de = -half - a;                          // 離橋頭還有多遠（負的代表已經過了橋頭）
+      const on = Math.abs(along) <= half && Math.abs(across) < d.hw;
+      let mode = null, rank = 0;
+      if (on) { if (a < half) { mode = 'on'; rank = -1; } }
+      else if (de > 0 && de < 3.5 && Math.abs(across) < 3.2) { mode = 'in'; rank = de; }
+      else if (de <= 0 && de > -1.6 && Math.abs(across) < d.hw + 1.2) { mode = 'back'; rank = 4; }
+      if (mode && (!best || rank < best.rank)) best = { d, ax, az, px, pz, along, across, s, de, mode, rank };
+    }
+    if (!best) return [dx, dz];
+    const { d, ax, az, px, pz, across, s, de, mode } = best;
+    let fx, fz, k;
+    if (mode === 'in') {                             // 還沒上橋：在抵達橋頭前把橫向偏移修正到 0
+      const lat = Math.max(-2.5, Math.min(2.5, -across / Math.max(de, 0.35)));
+      fx = ax * s + px * lat; fz = az * s + pz * lat; k = de < 2.5 ? 0.92 : 0.6;
+    } else if (mode === 'on') {                      // 在橋上：保持在中線附近
+      const lat = Math.max(-1, Math.min(1, -across * 1.5));
+      fx = ax * s + px * lat; fz = az * s + pz * lat; k = 0.7;
+    } else {                                         // 剛走過橋頭卻在橋旁邊：先退回橋頭
+      const lat = -Math.sign(across);
+      fx = -ax * s * 0.5 + px * lat; fz = -az * s * 0.5 + pz * lat; k = 0.95;
+    }
+    const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
+    const ox = dx * (1 - k) + fx * k, oz = dz * (1 - k) + fz * k, ol = Math.hypot(ox, oz) || 1;
+    return [ox / ol, oz / ol];
+  }
+
   /** 地面高度（橋上用橋面高度） */
   groundAt(x, z) {
-    for (const b of this.bridges || []) {
-      const dx = x - b.x, dz = z - b.z, ax = Math.sin(b.angle), az = Math.cos(b.angle);
-      const along = dx * ax + dz * az, across = -dx * az + dz * ax;
-      if (Math.abs(along) < b.len / 2 && Math.abs(across) < 1.1) return b.y + Math.sin((along / b.len + 0.5) * Math.PI) * 0.35 + 0.03;
-    }
-    return heightAt(x, z);
+    const h = heightAt(x, z), on = this.deckAt(x, z);
+    if (!on) return h;
+    const top = on.deck.top(on.t);
+    return on.deck.arch ? Math.max(h, top) : top;
   }
 
   #islandOutline() {

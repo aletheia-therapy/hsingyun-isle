@@ -159,7 +159,7 @@ const LOOKS = {
 
 /** 島民（依編號套用穿著與隨身物） */
 export function villager(look = 'student', color = '#5f9a8b', name = '', id = '') {
-  const L = LOOKS[id] || { look, top: color, hairStyle: /婆|姨|雨|娜|蓮|安/.test(name) ? 'long' : 'short' };
+  const L = typeof look === 'object' ? look : LOOKS[id] || { look, top: color, hairStyle: /婆|姨|雨|娜|蓮|安/.test(name) ? 'long' : 'short' };
   const f = humanFigure(L);
   const group = new THREE.Group();
   group.add(f.root);
@@ -224,11 +224,202 @@ export function ringMarker() {
   };
 }
 
-/** 任務物件：放在地上的柳丁、草地上的感謝卡、待點亮的石燈、湖邊的蒲團 */
-export function questItem(kind, i = 0) {
+/* ---------- 任務物件 ---------- */
+const glowOf = (col, op = 0.6, sc = 1.3) => { const sp = new THREE.Sprite(glowMaterial.clone()); sp.material.color.set(col); sp.material.opacity = op; sp.scale.setScalar(sc); return sp; };
+const shadowed = (m, cast = true) => { m.castShadow = cast; m.receiveShadow = true; return m; };
+const lathe = (pts, seg = 20) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
+
+/** 把一組靜態小物件依材質合併成少數幾個網格（減少繪製呼叫）；多材質的網格與精靈保留原樣 */
+function mergeStatic(g) {
+  g.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(g.matrixWorld).invert(), rel = new THREE.Matrix4();
+  const buckets = new Map(), done = [];
+  g.traverse((o) => {
+    if (!o.isMesh || Array.isArray(o.material)) return;
+    const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    geo.applyMatrix4(rel.multiplyMatrices(inv, o.matrixWorld));
+    for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') geo.deleteAttribute(k);
+    if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+    if (!buckets.has(o.material.uuid)) buckets.set(o.material.uuid, { m: o.material, geos: [], cast: false });
+    const b = buckets.get(o.material.uuid); b.geos.push(geo); b.cast ||= o.castShadow;
+    done.push(o);
+  });
+  done.forEach((o) => o.parent.remove(o));
+  for (const { m, geos, cast } of buckets.values()) {
+    const mesh = new THREE.Mesh(mergeGeometries(geos), m);
+    geos.forEach((x) => x.dispose());
+    mesh.castShadow = cast; mesh.receiveShadow = true; g.add(mesh);
+  }
+  return g;
+}
+
+/** 一張用 canvas 畫的小圖（筆記內頁、小安的畫） */
+const texCache = new Map();
+function canvasTex(key, w, h, draw) {
+  if (texCache.has(key)) return texCache.get(key);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  texCache.set(key, t);
+  return t;
+}
+const notePage = () => canvasTex('note', 128, 160, (x, w, h) => {
+  x.fillStyle = '#f7f1e2'; x.fillRect(0, 0, w, h);
+  x.strokeStyle = 'rgba(80,110,160,.35)'; x.lineWidth = 1;
+  for (let y = 22; y < h; y += 12) { x.beginPath(); x.moveTo(8, y); x.lineTo(w - 6, y); x.stroke(); }
+  x.strokeStyle = 'rgba(40,40,60,.75)'; x.lineWidth = 1.4;
+  let s = 7;
+  for (let y = 20; y < h - 10; y += 12) {
+    let px = 12; const end = w - 12 - ((y * 7) % 30);
+    x.beginPath(); x.moveTo(px, y - 3);
+    while (px < end) { s = (s * 9301 + 49297) % 233280; px += 3 + (s / 233280) * 4; x.lineTo(px, y - 3 - (s / 233280) * 4); }
+    x.stroke();
+  }
+  x.strokeStyle = 'rgba(200,70,60,.7)'; x.lineWidth = 2; x.strokeRect(10, 70, 60, 26);
+});
+const islandPainting = () => canvasTex('paint', 256, 196, (x, w, h) => {
+  const sky = x.createLinearGradient(0, 0, 0, h * 0.62); sky.addColorStop(0, '#a8c6d6'); sky.addColorStop(1, '#efe5cf');
+  x.fillStyle = sky; x.fillRect(0, 0, w, h);
+  x.fillStyle = 'rgba(120,150,140,.75)';
+  x.beginPath(); x.moveTo(0, 112); for (let i = 0; i <= 16; i++) x.lineTo(i * 16, 96 - Math.sin(i * 0.9) * 10 - (i % 3) * 4); x.lineTo(w, 120); x.lineTo(0, 120); x.fill();
+  const sea = x.createLinearGradient(0, 118, 0, h); sea.addColorStop(0, '#7ea4b2'); sea.addColorStop(1, '#4f7f8f');
+  x.fillStyle = sea; x.fillRect(0, 118, w, h - 118);
+  x.fillStyle = '#5c8450'; x.beginPath(); x.ellipse(128, 132, 86, 22, 0, Math.PI, 0); x.fill();
+  x.fillStyle = '#486e42'; x.beginPath(); x.ellipse(118, 124, 48, 26, 0, Math.PI, 0); x.fill();
+  x.fillStyle = '#6b4a35'; x.fillRect(150, 104, 4, 16); x.fillRect(166, 104, 4, 16);
+  x.fillStyle = '#8a3b30'; x.beginPath(); x.moveTo(142, 106); x.lineTo(160, 94); x.lineTo(178, 106); x.fill();
+  x.strokeStyle = 'rgba(255,255,255,.55)'; x.lineWidth = 2;
+  for (let i = 0; i < 9; i++) { x.beginPath(); x.moveTo(20 + i * 26, 150 + (i % 3) * 12); x.lineTo(38 + i * 26, 150 + (i % 3) * 12); x.stroke(); }
+  x.fillStyle = 'rgba(255,250,235,.9)'; x.beginPath(); x.arc(206, 40, 13, 0, Math.PI * 2); x.fill();
+});
+
+/** 一片蓮花瓣（小蓮燈用） */
+function lotusLamp() {
+  const g = new THREE.Group();
+  const petal = new THREE.SphereGeometry(0.1, 10, 8); petal.scale(0.5, 0.32, 1.2); petal.translate(0, 0, 0.1);
+  const pm = mat('#f2d9dc', { r: 0.6 }), pm2 = mat('#e8b9c2', { r: 0.6 });
+  for (let k = 0; k < 2; k++) for (let i = 0; i < 8; i++) {
+    const m = new THREE.Mesh(petal, k ? pm2 : pm);
+    m.rotation.set(-0.5 - k * 0.45, i * Math.PI / 4 + k * 0.4, 0, 'YXZ');
+    m.scale.setScalar(k ? 0.75 : 1); m.position.y = 0.02 + k * 0.03; g.add(m);
+  }
+  const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.08, 12), mat('#f3ead6', { r: 0.7 })); candle.position.y = 0.07; g.add(candle);
+  const fl = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 8).scale(1, 1.8, 1), mat('#fff2c8', { e: '#ffc860', ei: 2.4 })); fl.position.y = 0.15; g.add(fl);
+  mergeStatic(g);
+  const glow = glowOf('#ffd9a0', 0.55, 0.9); glow.position.y = 0.16; g.add(glow);
+  g.userData = { glow };
+  return g;
+}
+
+/** 心火：石座上的銅火盆，熄滅後化成一盞小蓮燈 */
+function brazier(i) {
+  const g = new THREE.Group();
+  g.add(shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.27, 0.48, 12), mat('#8d887d', { r: 0.95 }))));
+  g.children[0].position.y = 0.24;
+  const bowl = shadowed(new THREE.Mesh(lathe([[0.1, 0], [0.3, 0.05], [0.41, 0.18], [0.43, 0.22], [0.39, 0.21], [0.29, 0.1], [0.1, 0.06]], 22), mat('#5b4532', { r: 0.6, m: 0.35, side: THREE.DoubleSide })));
+  bowl.position.y = 0.47; g.add(bowl);
+  const coal = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.05, 18), mat('#2a201b', { r: 1, e: '#5a1a08', ei: 0.6 })); coal.position.y = 0.6; g.add(coal);
+  const tint = [['#ff8a2a', '#ffd36a'], ['#ff5a2a', '#ffb24a'], ['#d4642e', '#f0b070']][i % 3];
+  const flameGeo = lathe([[0, 0], [0.15, 0.06], [0.17, 0.16], [0.12, 0.32], [0.05, 0.5], [0, 0.62]], 14);
+  const add = (col, op) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, blending: THREE.AdditiveBlending });
+  const flames = new THREE.Group(); flames.position.y = 0.6; g.add(flames);
+  const parts = [[1, 0, 0, tint[0], 0.75], [0.62, 0.02, 0.0, tint[1], 0.9], [0.55, 0.12, 0.08, tint[0], 0.6], [0.5, -0.1, -0.06, tint[0], 0.6]].map(([s, x, z, col, op], k) => {
+    const m = new THREE.Mesh(flameGeo, add(col, op)); m.scale.setScalar(s); m.position.set(x, 0, z); m.userData.k = k * 1.7 + i; m.userData.b = s; flames.add(m); return m;
+  });
+  const glow = glowOf(tint[0], 0.7, 1.9); glow.position.y = 0.95; g.add(glow);
+  const lamp = lotusLamp(); lamp.position.y = 0.6; lamp.scale.setScalar(0.001); lamp.visible = false; g.add(lamp);
+  g.userData = { flames, parts, glow, lamp };
+  return g;
+}
+
+/** 小安的筆記：石凳上攤開的筆記本 */
+function notebookBench() {
+  const g = new THREE.Group();
+  const stone = mat('#8f897c', { r: 0.95 }), wood = mat('#86654a', { r: 0.8 });
+  for (const sx of [-0.42, 0.42]) { const l = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.4, 0.34), stone)); l.position.set(sx, 0.2, 0); g.add(l); }
+  const top = shadowed(new THREE.Mesh(new RoundedBoxGeometry(1.15, 0.07, 0.4, 2, 0.02), wood)); top.position.y = 0.43; g.add(top);
+  const cover = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.012, 0.31), mat('#3e5d78', { r: 0.7 }))); cover.position.set(-0.12, 0.472, 0.02); cover.rotation.y = 0.18; g.add(cover);
+  const pageM = new THREE.MeshStandardMaterial({ map: notePage(), roughness: 0.9 });
+  for (const sx of [-1, 1]) {
+    const pg = new THREE.Mesh(new THREE.BoxGeometry(0.205, 0.01, 0.29), [mat('#efe7d4'), mat('#efe7d4'), pageM, mat('#efe7d4'), mat('#efe7d4'), mat('#efe7d4')]);
+    pg.position.set(-0.12 + sx * 0.105 * Math.cos(0.18), 0.482 + 0.006, 0.02 - sx * 0.105 * Math.sin(0.18)); pg.rotation.set(0, 0.18, sx * -0.05);
+    pg.receiveShadow = true; g.add(pg);
+  }
+  const pen = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 8), mat('#23272e')); pen.rotation.set(Math.PI / 2, 0, 0.5); pen.position.set(0.2, 0.475, 0.03); g.add(pen);
+  return mergeStatic(g);
+}
+
+/** 小安的畫：木畫架上的小島風景 */
+function easel() {
+  const g = new THREE.Group();
+  const wood = mat('#9a7650', { r: 0.8 });
+  const leg = (x, z, rx, rz) => { const m = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.045, 1.62, 0.045), wood)); m.position.set(x, 0.78, z); m.rotation.set(rx, 0, rz); g.add(m); };
+  leg(-0.3, 0.06, -0.08, -0.17); leg(0.3, 0.06, -0.08, 0.17); leg(0, -0.36, 0.38, 0);
+  const ledge = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.035, 0.1), wood)); ledge.position.set(0, 0.62, 0.11); g.add(ledge);
+  const board = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.54, 0.025), mat('#e9e2d2'))); board.position.set(0, 0.92, 0.095); board.rotation.x = -0.08; g.add(board);
+  const pic = new THREE.Mesh(new THREE.PlaneGeometry(0.64, 0.48), new THREE.MeshStandardMaterial({ map: islandPainting(), roughness: 0.85 }));
+  pic.position.set(0, 0.92, 0.109); pic.rotation.x = -0.08; g.add(pic);
+  const pal = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.012, 18).scale(1.3, 1, 1), mat('#b58a5a'))); pal.position.set(0.42, 0.01, 0.32); g.add(pal);
+  [['#c44a3a', 0.05, 0.05], ['#e0b34a', -0.04, 0.06], ['#4b7aa0', 0.08, -0.04], ['#5a8a4a', -0.07, -0.03]].forEach(([c, x, z]) => { const d = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6).scale(1, 0.4, 1), mat(c, { r: 0.4 })); d.position.set(0.42 + x, 0.02, 0.32 + z); g.add(d); });
+  return mergeStatic(g);
+}
+
+/** 小安救回來的花：陶盆、盛開的花與一把澆水壺 */
+function flowerPot() {
+  const g = new THREE.Group();
+  const pot = shadowed(new THREE.Mesh(lathe([[0, 0], [0.15, 0], [0.18, 0.03], [0.23, 0.3], [0.26, 0.31], [0.26, 0.37], [0.225, 0.37], [0.2, 0.34], [0, 0.34]], 22), mat('#ad5f3c', { r: 0.9 })));
+  g.add(pot);
+  const soil = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.02, 18), mat('#3b2a1f', { r: 1 })); soil.position.y = 0.345; g.add(soil);
+  const leafGeo = new THREE.SphereGeometry(0.08, 8, 6); leafGeo.scale(0.45, 0.12, 1.3); leafGeo.translate(0, 0, 0.09);
+  const leafM = mat('#4f7d3c', { r: 0.7 }), stemM = mat('#5f8a40');
+  for (let i = 0; i < 9; i++) { const l = shadowed(new THREE.Mesh(leafGeo, leafM)); l.position.y = 0.38 + (i % 3) * 0.06; l.rotation.set(-0.5 - (i % 3) * 0.2, i * 2.3, 0, 'YXZ'); g.add(l); }
+  const petalGeo = new THREE.SphereGeometry(0.035, 8, 6).scale(0.6, 0.3, 1.3).translate(0, 0, 0.035);
+  [[0, 0.62, 0, '#e6b83a'], [0.1, 0.55, 0.06, '#d9675c'], [-0.09, 0.57, -0.05, '#e6b83a'], [0.02, 0.52, -0.11, '#d9675c']].forEach(([x, y, z, c]) => {
+    const st = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.008, y - 0.34, 6), stemM); st.position.set(x * 0.6, (y + 0.34) / 2, z * 0.6); g.add(st);
+    const f = new THREE.Group(); f.position.set(x, y, z); g.add(f);
+    for (let i = 0; i < 6; i++) { const p = new THREE.Mesh(petalGeo, mat(c, { r: 0.6 })); p.rotation.set(-0.35, i * Math.PI / 3, 0, 'YXZ'); f.add(p); }
+    const ctr = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), mat('#6a4a1c')); ctr.position.y = 0.01; f.add(ctr);
+  });
+  const can = new THREE.Group(); can.position.set(0.42, 0, 0.1); can.rotation.y = -0.6; g.add(can);
+  const cm = mat('#6f8e97', { r: 0.45, m: 0.4 });
+  can.add(shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.22, 16), cm))); can.children[0].position.y = 0.11;
+  const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.022, 0.26, 8), cm); sp.position.set(0.15, 0.16, 0); sp.rotation.z = -1.0; can.add(sp);
+  const hd = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.012, 6, 14, Math.PI), cm); hd.position.set(-0.03, 0.22, 0); can.add(hd);
+  return mergeStatic(g);
+}
+
+/** 三好村的組員：站在村子裡生悶氣，走近時會轉向你；說過話後會開心地揮手 */
+function questPerson(p, i) {
+  const v = villager({ ...p.look, height: [1.0, 0.97, 1.03][i % 3] }, '#888', p.name, '');
+  const g = v.group;
+  let st = 'idle', wx = 9999, wz = 9999;
+  return {
+    group: g, kind: 'person', talk: { ...p, kind: 'person' },
+    get done() { return st !== 'idle'; },
+    collect() { if (st === 'idle') { st = 'talked'; v.setMood('happy'); } },
+    get talkedTo() { return st !== 'idle'; },
+    watch(x, z) { wx = x; wz = z; v.watch(x, z); },
+    update(dt) {
+      const d = Math.hypot(wx - g.position.x, wz - g.position.z);
+      if (d < 5 && d > 0.4) {
+        let a = Math.atan2(wx - g.position.x, wz - g.position.z) - g.rotation.y;
+        a = Math.atan2(Math.sin(a), Math.cos(a));
+        g.rotation.y += a * Math.min(1, dt * 2.5);
+      }
+      v.update(dt);
+    },
+  };
+}
+
+/**
+ * 任務物件：柳丁、感謝卡、石燈、湖邊的蒲團、心火、組員、小安的作品（筆記、畫、花）。
+ * opt：組員或心火的對話資料（name、line、options）
+ */
+export function questItem(kind, i = 0, opt = {}) {
+  if (kind === 'person') return questPerson(opt, i);
   const g = new THREE.Group();
   const inner = new THREE.Group(); g.add(inner);
-  let light = null;
+  let light = null, fire = null, spark = null;
   if (kind === 'orange') {
     const o = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 12), mat('#e07b22', { r: 0.55 })); o.castShadow = true; o.position.y = 0.11; inner.add(o);
     const lf = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6).scale(1.6, 0.3, 0.8), mat('#4f7a3a')); lf.position.set(0.04, 0.23, 0); inner.add(lf);
@@ -247,19 +438,44 @@ export function questItem(kind, i = 0) {
     light = new THREE.Sprite(glowMaterial.clone()); light.material.opacity = 0.7; light.scale.setScalar(1.3); light.position.y = 0.95; light.visible = false; inner.add(light);
     const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.26, 0.24), mat('#fff0c8', { e: '#ffb050', ei: 2 })); bulb.position.y = 0.95; bulb.visible = false; inner.add(bulb);
     light.userData.bulb = bulb;
+  } else if (kind === 'fire') {
+    fire = brazier(i); inner.add(fire);
+  } else if (kind === 'book' || kind === 'easel' || kind === 'pot') {
+    inner.add(kind === 'book' ? notebookBench() : kind === 'easel' ? easel() : flowerPot());
+    inner.rotation.y = [Math.PI + 0.4, -0.5, 0.9][i % 3];
+    spark = glowOf('#ffe2a0', 0, 2.2); spark.position.y = 0.9; g.add(spark);
   }
-  let clock = Math.random() * 6, state = 'idle', fade = 1;
+  const STAY = new Set(['lamp', 'lotus', 'fire', 'book', 'easel', 'pot']);
+  let clock = Math.random() * 6, state = 'idle', fade = 1, ex = 0;
   return {
     group: g, kind,
+    talk: kind === 'fire' ? { ...opt, role: '心火', kind: 'fire' } : null,
     get done() { return state !== 'idle'; },
-    collect() {
+    /** instant：重新整理頁面時直接還原成完成的樣子，不播動畫 */
+    collect(instant = false) {
       if (state !== 'idle') return;
-      state = kind === 'lamp' || kind === 'lotus' ? 'lit' : 'gone';
+      state = STAY.has(kind) ? 'lit' : 'gone';
       if (light) { light.visible = true; light.userData.bulb.visible = true; }
+      if (fire) fire.userData.lamp.visible = true;
+      if (instant) { ex = 1; fade = 0; if (state === 'gone') g.visible = false; }
     },
     update(dt) {
       clock += dt;
       if (light?.visible) light.scale.setScalar(1.25 + Math.sin(clock * 6) * 0.06);
+      if (fire && g.visible) {
+        const u = fire.userData;
+        if (state === 'lit') ex = Math.min(1, ex + dt * 1.2);
+        const k = 1 - ex;
+        u.flames.visible = k > 0.01;
+        u.parts.forEach((m) => { const a = m.userData.k, b = m.userData.b * Math.max(0.001, k), f = 1 + 0.16 * Math.sin(clock * 9 + a) + 0.08 * Math.sin(clock * 23 + a * 2); m.scale.set(b, b * f, b); m.rotation.y += dt * (0.6 + a * 0.1); });
+        u.glow.material.opacity = (0.55 + 0.1 * Math.sin(clock * 11)) * k;
+        if (ex > 0) { const s = Math.max(0.001, Math.min(1, (ex - 0.3) / 0.7)); u.lamp.scale.setScalar(s); u.lamp.userData.glow.scale.setScalar(0.85 + Math.sin(clock * 5) * 0.05); }
+      }
+      if (spark && state === 'lit' && fade > 0) {
+        fade = Math.max(0, fade - dt * 0.5);
+        spark.material.opacity = Math.sin(Math.min(1, (1 - fade) * 2.2) * Math.PI) * 0.65;
+        spark.scale.setScalar(2.2 + (1 - fade) * 1.4);
+      }
       if (state === 'gone' && fade > 0) {
         fade = Math.max(0, fade - dt * 3);
         g.scale.setScalar(fade); g.position.y += dt * 2;

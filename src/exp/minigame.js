@@ -1,60 +1,89 @@
-import { GAMES } from '../data/games.js';
+import { TRIALS } from '../data/games.js';
 import { state } from '../state.js';
 import { esc } from '../ui/chat.js';
 
-/** 島民的小遊戲：pick / rewrite（選一個）與 sort（分類念頭） */
-export function mountGame(el, taskId, ctx) {
-  const g = GAMES[taskId];
-  if (!g) return;
-  let r = 0, right = 0;
+/**
+ * 佛法挑戰：每一題都要答對才能前進。答錯會提示原因、可以再選；
+ * 一題沒錯 +10 善念值、有錯但最後答對 +5。全部通過後呼叫 onPass。
+ */
+export function mountTrial(el, taskId, ctx, { passed = false, onPass } = {}) {
+  const T = TRIALS[taskId];
+  if (!T) { onPass?.(); return; }
+  const N = T.rounds.length;
   const award = (key, n) => { const got = state.addPoints(key, n); if (got) ctx.points?.(got); };
-  const head = `<div class="mg-head"><span class="st-step">小遊戲</span><b>${esc(g.title)}</b><small>每答對一題 +10 善念值</small></div><p class="exp-hint">${esc(g.hint)}</p>`;
+  const head = `<div class="mg-head"><span class="st-step">佛法挑戰</span><b>${esc(T.title)}</b><small>全部答對才算過關</small></div><p class="exp-hint">${esc(T.hint)}</p>`;
+  let r = 0, replay = false;
 
-  if (g.type === 'sort') {
-    const left = g.items.map((x, i) => i);
-    const placed = new Map();
-    const render = () => {
-      el.innerHTML = `${head}
-        <div class="sort-pool">${left.filter((i) => !placed.has(i)).map((i) => `<button type="button" class="thought" data-i="${i}">${esc(g.items[i].t)}</button>`).join('') || '<p class="zz-all">全部放好了！</p>'}</div>
-        <div class="sort-bins">
-          <div class="bin bin-good" data-good="1"><b>好心念</b>${[...placed].filter(([, v]) => v.good).map(([i]) => `<span>${esc(g.items[i].t)}</span>`).join('')}</div>
-          <div class="bin bin-turn" data-good="0"><b>需要轉念</b>${[...placed].filter(([, v]) => !v.good).map(([i]) => `<span>${esc(g.items[i].t)}<em>轉念：${esc(g.items[i].turn)}</em></span>`).join('')}</div>
-        </div>
-        <p class="mt-msg" aria-live="polite"></p>`;
+  const summary = () => {
+    el.innerHTML = `${head}<div class="exp-done"><b>✦ 通過「${esc(T.title)}」</b><span>${N} 題全部答對。</span></div>
+      <button type="button" class="btn btn-quiet btn-sm mg-again">再挑戰一次</button>`;
+    el.querySelector('.mg-again').addEventListener('click', () => { r = 0; replay = true; round(); });
+  };
+
+  const next = (box, last) => {
+    box.insertAdjacentHTML('beforeend', `<button type="button" class="btn btn-primary btn-sm mg-next">${last ? '完成挑戰' : '下一題'}</button>`);
+    box.querySelector('.mg-next').addEventListener('click', () => {
+      r++;
+      if (r >= N) { if (!replay) onPass?.(); summary(); } else round();
+    });
+  };
+
+  const round = () => {
+    const q = T.rounds[r];
+    let miss = 0;
+    const done = () => { if (!replay) award(`trial:${taskId}:${r}`, miss ? 5 : 10); };
+    if (q.type === 'sort') {
+      const placed = new Map();
       let sel = null;
-      el.querySelectorAll('.thought').forEach((b) => b.addEventListener('click', () => { el.querySelectorAll('.thought').forEach((x) => x.classList.remove('is-sel')); b.classList.add('is-sel'); sel = Number(b.dataset.i); }));
-      el.querySelectorAll('.bin').forEach((bin) => bin.addEventListener('click', () => {
-        const msg = el.querySelector('.mt-msg');
-        if (sel === null) { msg.textContent = '先點一個念頭，再點要放的地方。'; return; }
-        const it = g.items[sel], good = bin.dataset.good === '1';
-        if (it.good === good) { placed.set(sel, { good }); award(`mg:${taskId}:${sel}`, 10); render(); if (placed.size === g.items.length) el.querySelector('.mt-msg').innerHTML = '<b>✦ 心湖清澈了。</b>覺察念頭、轉一個方向，就是存好心的修行。'; }
-        else { msg.textContent = good ? '這個念頭可能會讓自己或別人受傷，再想想？' : '這其實是一個善良的念頭喔！'; bin.classList.add('shake'); setTimeout(() => bin.classList.remove('shake'), 450); }
-      }));
-    };
-    render();
-    return;
-  }
-
-  const render = () => {
-    if (r >= g.rounds.length) {
-      el.innerHTML = `${head}<div class="exp-done"><b>✦ ${esc(g.title)}：答對 ${right} / ${g.rounds.length}</b><span>${right === g.rounds.length ? '全對！你已經很會了。' : '沒關係，生活裡多練習幾次就會了。'}</span></div>
-        <button type="button" class="btn btn-quiet btn-sm mg-again">再玩一次</button>`;
-      el.querySelector('.mg-again').addEventListener('click', () => { r = 0; right = 0; render(); });
+      const draw = () => {
+        el.innerHTML = `${head}
+          <p class="mg-round">第 ${r + 1} / ${N} 題</p>
+          <div class="mg-q">${esc(q.q)}</div>
+          <div class="sort-pool">${q.items.map((it, i) => placed.has(i) ? '' : `<button type="button" class="thought${sel === i ? ' is-sel' : ''}" data-i="${i}">${esc(it.t)}</button>`).join('') || '<p class="zz-all">全部放好了！</p>'}</div>
+          <div class="sort-bins" style="grid-template-columns: repeat(${Math.min(q.bins.length, 4)}, 1fr)">${q.bins.map((b, bi) => `<div class="bin bin-${bi % 4}" data-b="${bi}" role="button" tabindex="0"><b>${esc(b)}</b>${[...placed.keys()].filter((i) => q.items[i].b === bi).map((i) => `<span>${esc(q.items[i].t)}${q.items[i].hint && q.bins.length === 2 && bi === 1 ? `<em>${esc(q.items[i].hint)}</em>` : ''}</span>`).join('')}</div>`).join('')}</div>
+          <div class="qz-why" aria-live="polite"></div>`;
+        el.querySelectorAll('.thought').forEach((b) => b.addEventListener('click', () => { sel = Number(b.dataset.i); draw(); }));
+        el.querySelectorAll('.bin').forEach((bin) => bin.addEventListener('click', () => {
+          const why = el.querySelector('.qz-why');
+          if (sel === null) { why.innerHTML = '<p>先點一張卡片，再點要放的格子。</p>'; return; }
+          const it = q.items[sel], bi = Number(bin.dataset.b);
+          if (it.b === bi) {
+            placed.set(sel, true); sel = null; draw();
+            if (placed.size === q.items.length) {
+              done();
+              const box = el.querySelector('.qz-why');
+              box.innerHTML = `<p class="mg-ok"><b>✦ 全部正確！</b>${esc(q.why)}</p>`;
+              next(box, r === N - 1);
+            }
+          } else {
+            miss++;
+            why.innerHTML = `<p class="mg-no">不太對喔。${it.hint ? `提示：${esc(it.hint)}` : '再想想看。'}</p>`;
+            bin.classList.add('shake'); setTimeout(() => bin.classList.remove('shake'), 450);
+          }
+        }));
+      };
+      draw();
       return;
     }
-    const q = g.rounds[r];
     el.innerHTML = `${head}
-      <p class="mg-round">第 ${r + 1} / ${g.rounds.length} 題</p>
-      <div class="mg-q${g.type === 'rewrite' ? ' mg-harsh' : ''}">${esc(q.q)}</div>
+      <p class="mg-round">第 ${r + 1} / ${N} 題</p>
+      <div class="mg-q${q.type === 'rewrite' ? ' mg-harsh' : ''}">${q.type === 'rewrite' ? '把這句刺耳的話換成「愛語」：' : ''}${esc(q.q)}</div>
       <div class="opts">${q.a.map((a, i) => `<button type="button" class="opt" data-i="${i}">${esc(a)}</button>`).join('')}</div>
-      <div class="qz-why"></div>`;
+      <div class="qz-why" aria-live="polite"></div>`;
     el.querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => {
-      const i = Number(b.dataset.i), ok = i === q.c;
-      if (ok) { right++; award(`mg:${taskId}:${r}`, 10); }
-      el.querySelectorAll('.opt').forEach((o, j) => { o.disabled = true; o.classList.toggle('is-right', j === q.c); o.classList.toggle('is-wrong', j === i && !ok); });
-      el.querySelector('.qz-why').innerHTML = `<p>${ok ? '答對了！' : '再想想：'}${esc(q.why)}</p><button type="button" class="btn btn-primary btn-sm">${r < g.rounds.length - 1 ? '下一題' : '看結果'}</button>`;
-      el.querySelector('.qz-why button').addEventListener('click', () => { r++; render(); });
+      const i = Number(b.dataset.i), box = el.querySelector('.qz-why');
+      if (i !== q.c) {
+        miss++;
+        b.disabled = true; b.classList.add('is-wrong');
+        box.innerHTML = '<p class="mg-no">不太對喔，再想想看哪一個更好。</p>';
+        return;
+      }
+      done();
+      el.querySelectorAll('.opt').forEach((o, j) => { o.disabled = true; o.classList.toggle('is-right', j === q.c); });
+      box.innerHTML = `<p class="mg-ok"><b>${miss ? '答對了！' : '一次就答對！'}</b>${esc(q.why)}</p>`;
+      next(box, r === N - 1);
     }));
   };
-  render();
+
+  if (passed) summary(); else round();
 }

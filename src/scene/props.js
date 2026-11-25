@@ -537,10 +537,10 @@ export function lotus(g, x, y, z, seed = 1) {
 
 /** 木橋：跨過小溪。木板一片片鋪在兩根拱形大樑上，兩側有欄柱與扶手 */
 const PLANK = [mat('#9a8468', { r: 0.92, map: TEX.wood }), mat('#86705a', { r: 0.92, map: TEX.wood }), mat('#a8957a', { r: 0.92, map: TEX.wood })];
-export function woodBridge(g, len = 5, w = 1.8) {
+export function woodBridge(g, len = 5, w = 1.8, d0 = 0, d1 = 0, arcH = 0.3) {
   const r = xrand(Math.round(len * 100));
-  const arc = (t) => Math.sin(t * Math.PI) * 0.35;
-  const at = (x) => arc(x / len + 0.5);
+  // 橋面：從一岸（d0）順順地接到另一岸（d1），中間微微拱起
+  const at = (x) => { const t = x / len + 0.5; return d0 + (d1 - d0) * t + Math.sin(t * Math.PI) * arcH; };
   // 兩根拱樑
   const segs = 10;
   for (const sz of [-1, 1]) for (let i = 0; i < segs; i++) {
@@ -573,6 +573,6 @@ export function woodBridge(g, len = 5, w = 1.8) {
       }
     }
     // 橋頭的石座
-    for (const ex of [-len / 2, len / 2]) rbox(g, 0.6, 0.5, 0.5, M.stoneDk(), ex - Math.sign(ex) * 0.1, -0.55, sz * (w / 2 - 0.1), 0.05);
+    for (const ex of [-len / 2, len / 2]) rbox(g, 0.6, 0.6, 0.5, M.stoneDk(), ex - Math.sign(ex) * 0.1, at(ex) - 0.62, sz * (w / 2 - 0.1), 0.05);
   }
 }

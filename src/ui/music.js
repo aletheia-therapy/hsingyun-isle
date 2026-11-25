@@ -1,7 +1,10 @@
 /**
- * 背景音樂：進入首頁就開始循環播放。
- * 瀏覽器規定「使用者互動前不能自動播放有聲音的媒體」，
- * 所以先嘗試直接播放；被擋下時，等使用者第一次點擊或按鍵就立刻開始。
+ * 背景音樂：一打開首頁就循環播放。
+ * 瀏覽器規定「使用者互動前不能自動播放有聲音的媒體」，所以：
+ *   1. 先直接嘗試播放（有些瀏覽器允許）；
+ *   2. 被擋下時，載入畫面會出現「點一下，進入星雲之島」，第一次點擊就開始播放；
+ *   3. 之後任何一次點擊、放開手指或按鍵也都會再試一次。
+ * 注意：手機上「手指按下」那一刻不算互動（放開才算），所以 pointerup、touchend、click 都要聽。
  */
 const KEY = 'hsingyun-isle:music';
 const audio = new Audio('assets/bgm.mp3');
@@ -13,22 +16,27 @@ try { on = localStorage.getItem(KEY) !== 'off'; } catch { /* 預設開啟 */ }
 const subs = new Set();
 const notify = () => subs.forEach((f) => f(on));
 
+/** 嘗試播放：回傳 Promise<boolean>，true 代表正在播放 */
 function tryPlay() {
-  if (!on) return;
-  audio.play().then(() => { unbind(); }).catch(() => { /* 等使用者互動 */ });
+  if (!on) return Promise.resolve(false);
+  let p;
+  try { p = audio.play(); } catch { return Promise.resolve(false); }
+  return Promise.resolve(p).then(() => { unbind(); return true; }).catch(() => false);
 }
-const kick = () => tryPlay();
-const EVTS = ['pointerdown', 'keydown', 'touchstart'];
+const kick = () => { tryPlay(); };
+const EVTS = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'];
+const bind = () => EVTS.forEach((e) => addEventListener(e, kick, true));
 const unbind = () => EVTS.forEach((e) => removeEventListener(e, kick, true));
-EVTS.forEach((e) => addEventListener(e, kick, true));
+bind();
 
 export const music = {
   get on() { return on; },
+  get playing() { return !audio.paused; },
   start: tryPlay,
   set(v) {
     on = v;
     try { localStorage.setItem(KEY, v ? 'on' : 'off'); } catch { /* 忽略 */ }
-    if (v) { audio.play().catch(() => EVTS.forEach((e) => addEventListener(e, kick, true))); } else audio.pause();
+    if (v) tryPlay().then((ok) => { if (!ok) bind(); }); else audio.pause();
     notify();
   },
   onChange(f) { subs.add(f); return () => subs.delete(f); },
