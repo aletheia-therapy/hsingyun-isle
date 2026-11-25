@@ -92,6 +92,10 @@ export const SOURCES = {
     t: '康健雜誌〈將佛教文化傳到歐美，星雲大師是關鍵〉（慧傳法師談「給」）',
     u: 'https://www.commonhealth.com.tw/article/87671',
   },
+  wuliang: {
+    t: '〈從四無量心探究星雲大師的四給精神〉（論文摘要，臺大佛學數位圖書館）',
+    u: 'https://buddhism.lib.ntu.edu.tw/search/search_detail.jsp?seq=589618',
+  },
   jingtu: {
     t: '〈悟貫人間〉專題：人間淨土與四句教的價值標準',
     u: 'https://buddhism.lib.ntu.edu.tw/FT/JA/714748.pdf',

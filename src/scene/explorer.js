@@ -20,6 +20,23 @@ export class Explorer {
     this.onPoint = null;     // (index, total) 每抵達路徑上的一個點
     this.speedScale = 1;
     this.pauseT = 0;
+    this.manualMoving = false;
+  }
+
+  /** 自由行走：朝 (dx, dz) 方向前進 dist 公尺，canWalk(x, z) 判斷能不能走；撞牆時沿牆滑動 */
+  drive(dx, dz, dist, dt, canWalk) {
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-4) { this.manualMoving = false; return false; }
+    dx /= len; dz /= len;
+    this.facing = dampAngle(this.facing, Math.atan2(dx, dz), 12, dt);
+    const nx = this.pos.x + dx * dist, nz = this.pos.y + dz * dist;
+    let moved = false;
+    if (canWalk(nx, nz)) { this.pos.set(nx, nz); moved = true; }
+    else if (canWalk(nx, this.pos.y)) { this.pos.x = nx; moved = true; }
+    else if (canWalk(this.pos.x, nz)) { this.pos.y = nz; moved = true; }
+    this.manualMoving = moved;
+    this.#sync();
+    return moved;
   }
 
   /** 原地停下 sec 秒（路徑保留，之後繼續走） */
@@ -108,6 +125,7 @@ export class Explorer {
   update(dt) {
     this.clock += dt;
     if (this.pauseT > 0) this.pauseT -= dt;
+    const walking = (this.path.length && this.pauseT <= 0) || this.manualMoving;
     if (this.path.length && this.pauseT <= 0) {
       let remain = SPEED * this.speedScale * dt;
       while (remain > 0 && this.path.length) {
@@ -131,6 +149,8 @@ export class Explorer {
         const dir = Math.atan2(d.x - c.x, d.y - c.y);
         this.facing = dampAngle(this.facing, dir, 10, dt);
       }
+    }
+    if (walking) {
       this.body.position.y = Math.abs(Math.sin(this.clock * 9)) * 0.03;
       this.legs.forEach((l, i) => { l.rotation.x = Math.sin(this.clock * 9 + i * Math.PI) * 0.55; });
       this.arms.forEach((a, i) => { a.rotation.x = Math.sin(this.clock * 9 + i * Math.PI + Math.PI) * (i ? 0.25 : 0.45); });
@@ -142,6 +162,7 @@ export class Explorer {
       this.lantern.rotation.x *= 0.95;
       this.lantern.rotation.z = Math.sin(this.clock * 1.3) * 0.03;
     }
+    this.manualMoving = false;
     this.light.intensity = 2.4 + Math.sin(this.clock * 13) * 0.2 + Math.sin(this.clock * 7.3) * 0.15;
     this.#sync();
   }
@@ -152,7 +173,7 @@ export class Explorer {
   faceTowards(x, z) { this.facing = Math.atan2(x - this.pos.x, z - this.pos.y); }
 
   #sync() {
-    this.object.position.set(this.pos.x, heightAt(this.pos.x, this.pos.y), this.pos.y);
+    this.object.position.set(this.pos.x, (this.ground || heightAt)(this.pos.x, this.pos.y), this.pos.y);
     this.object.rotation.y = this.facing;
   }
 }

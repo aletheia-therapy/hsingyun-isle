@@ -256,6 +256,30 @@ export const BUILD = {
     for (const x of [-L / 2, L / 2]) paperLamp(g, x, 1.85, 1.05, 1);
   },
 
+  /** 三好村的民宅：白牆黛瓦、木門木窗、門前小院與竹籬 */
+  house(g, opt) {
+    rbox(g, 4.6, 0.22, 3.6, M.stoneDk(), 0, 0, -0.2, 0.04);
+    box(g, 3.8, 1.9, 2.6, M.wall(), 0, 0.22, -0.4);
+    box(g, 3.9, 0.16, 2.7, M.wood(), 0, 2.1, -0.4);
+    box(g, 0.8, 1.35, 0.05, mat('#7a4a30', { r: 0.8 }), 0, 0.22, 0.91);
+    for (const x of [-1.2, 1.2]) { box(g, 0.7, 0.6, 0.05, M.door(), x, 1.0, 0.91); box(g, 0.82, 0.08, 0.1, M.woodDk(), x, 0.94, 0.93); }
+    // 人字形屋頂（用正脊較長的曲面屋頂）
+    roof(g, 4.8, 3.6, 1.25, { ridge: 3.8, lift: 0.18, material: M.roofSlate(), y: 2.24, z: -0.4 });
+    plaque(g, opt?.color || '#c4724f', 0, 1.82, 0.95, 0.7);
+    // 門前小院：竹籬
+    for (let i = -5; i <= 5; i++) {
+      if (Math.abs(i) <= 1) continue;
+      cyl(g, 0.035, 0.035, 0.7, M.wood(), i * 0.4, 0, 1.75, 5);
+    }
+    box(g, 1.65, 0.05, 0.05, M.wood(), -1.42, 0.55, 1.75); box(g, 1.65, 0.05, 0.05, M.wood(), 1.42, 0.55, 1.75);
+    box(g, 0.05, 0.05, 1.9, M.wood(), -2.2, 0.55, 0.8); box(g, 0.05, 0.05, 1.9, M.wood(), 2.2, 0.55, 0.8);
+    // 院子裡的水缸與板凳
+    cyl(g, 0.3, 0.24, 0.5, mat('#6b5a48', { r: 0.8 }), 1.6, 0.22, 1.2, 12);
+    cyl(g, 0.27, 0.27, 0.03, M.water(), 1.6, 0.7, 1.2, 12);
+    bench(g, -1.5, 1.2, 0, 0.9);
+    paperLamp(g, 1.95, 1.75, 1.0, 0.8);
+  },
+
   /** 時光碑林：一圈石碑與一座小碑亭 */
   stele(g) {
     rbox(g, 5.2, 0.15, 3.6, M.stoneDk(), 0, 0, 0, 0.04);
@@ -520,5 +544,39 @@ export function lotus(g, x, y, z, seed = 1) {
   if (r() > 0.55) {
     const f = add(g, new THREE.ConeGeometry(0.11, 0.2, 6, 1, true), L.lotus(), x + 0.05, y + 0.14, z);
     f.rotation.x = Math.PI;
+  }
+}
+
+/** 花圃：一叢叢低矮的花（粉、白、黃、紫），點綴步道兩旁 */
+const FLOWER = ['#f2b8c6', '#ffffff', '#f6d36b', '#c9a6e0', '#f4a68c', '#fbe3ea'];
+export function flowerBed(g, x, y, z, s = 1, seed = 1) {
+  const r = rng(seed);
+  const leaf = r() > 0.5 ? L.leaf() : L.leaf3();
+  const base = add(g, new THREE.IcosahedronGeometry(0.42 * s, 1), leaf, x, y + 0.12 * s, z);
+  base.scale.set(1.25, 0.42, 1); base.castShadow = false;
+  const c1 = FLOWER[Math.floor(r() * FLOWER.length)], c2 = FLOWER[Math.floor(r() * FLOWER.length)];
+  for (let i = 0; i < 7; i++) {
+    const a = r() * Math.PI * 2, d = r() * 0.42 * s;
+    const f = add(g, new THREE.IcosahedronGeometry((0.07 + r() * 0.05) * s, 0), mat(i % 3 ? c1 : c2, { r: 0.7 }), x + Math.cos(a) * d, y + (0.26 + r() * 0.1) * s, z + Math.sin(a) * d * 0.8);
+    f.castShadow = false;
+  }
+}
+
+/** 木橋：跨過小溪，兩側有扶手 */
+export function woodBridge(g, len = 5, w = 1.8) {
+  const n = Math.round(len / 0.32);
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1), x = -len / 2 + t * len, y = Math.sin(t * Math.PI) * 0.35;
+    box(g, 0.28, 0.08, w, M.wood(), x, y, 0);
+  }
+  for (const sz of [-1, 1]) {
+    for (let i = 0; i <= 4; i++) { const t = i / 4, x = -len / 2 + t * len, y = Math.sin(t * Math.PI) * 0.35; cyl(g, 0.045, 0.05, 0.75, M.woodDk(), x, y, sz * (w / 2 - 0.05), 6); }
+    for (let i = 0; i < 8; i++) {
+      const t0 = i / 8, t1 = (i + 1) / 8, x0 = -len / 2 + t0 * len, x1 = -len / 2 + t1 * len;
+      const y0 = Math.sin(t0 * Math.PI) * 0.35 + 0.72, y1 = Math.sin(t1 * Math.PI) * 0.35 + 0.72;
+      const rail = add(g, new THREE.BoxGeometry(Math.hypot(x1 - x0, y1 - y0) + 0.02, 0.06, 0.06), M.wood(), (x0 + x1) / 2, (y0 + y1) / 2, sz * (w / 2 - 0.05));
+      rail.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+    }
+    for (const ex of [-len / 2, len / 2]) cyl(g, 0.09, 0.1, 0.9, M.woodDk(), ex, -0.6, sz * (w / 2 + 0.05), 6);
   }
 }

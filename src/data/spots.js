@@ -1,73 +1,64 @@
 /**
- * 島上五大區域與各地點。座標：1 單位 = 1 公尺，-z 為北（畫面上方），+x 為東。
- * kind 對應 scene/props.js 的建造函式；exp 對應 exp/ 下的互動模組。
+ * 三好四給之島：六個區域、十二個站點。座標：1 單位 = 1 公尺，-z 為北，+x 為東。
+ * kind 對應 scene/props.js 的建造函式；exp 對應 exp/ 下的互動模組；
+ * front 是互動點（島民站的位置／地上的光圈）。
  */
 export const ZONES = [
-  { id: 'life', no: '一', name: '生命之路', sub: '大師的一生', color: '#b8863b' },
-  { id: 'wisdom', no: '二', name: '智慧之境', sub: '人間佛教', color: '#4f8a83' },
-  { id: 'practice', no: '三', name: '善念實踐園', sub: '三好四給', color: '#c4724f' },
-  { id: 'hall', no: '四', name: 'AI 智慧講堂', sub: '大師智慧', color: '#5a6fa6' },
-  { id: 'vow', no: '五', name: '願行之境', sub: '把智慧帶回生活', color: '#b0565a' },
+  { id: 'origin', no: '源', name: '山門', sub: '三好四給從哪裡來', color: '#b8863b' },
+  { id: 'sanhao', no: '三', name: '三好村', sub: '做好事・說好話・存好心', color: '#c4724f' },
+  { id: 'sigei', no: '四', name: '四給街', sub: '信心・歡喜・希望・方便', color: '#4f8a83' },
+  { id: 'media', no: '看', name: '善念影音堂', sub: '延伸觀看', color: '#8a6aa8' },
+  { id: 'hall', no: '問', name: 'AI 智慧講堂', sub: '生活中的三好四給', color: '#5a6fa6' },
+  { id: 'vow', no: '願', name: '願行台', sub: '把善念帶回生活', color: '#b0565a' },
 ];
 
-// 善念實踐園：七座亭子環繞蓮池
-export const GARDEN = { x: 16.5, z: 2.5, r: 6.6, ring: 4.0, pond: 2.5 };
-const GARDEN_DEG = [210, 255, 300, 345, 30, 75, 120];   // 西側（180°）留作入口
-const gardenSpot = (i, id, place, title) => {
-  const a = GARDEN_DEG[i] * Math.PI / 180;
+/** 世界尺度：地點之間的距離放大，建築維持真人比例 */
+export const S = 2.2;
+
+// 四給街：四座亭子環繞蓮池
+export const GARDEN = { x: 16.5 * S, z: 2.5 * S, r: 9.5, ring: 6.0, pond: 3.8 };
+const pav = (deg, id, place) => {
+  const a = deg * Math.PI / 180;
   const x = GARDEN.x + Math.cos(a) * GARDEN.r, z = GARDEN.z + Math.sin(a) * GARDEN.r;
   const k = GARDEN.ring / GARDEN.r;
-  const fx = GARDEN.x + Math.cos(a) * GARDEN.r * k, fz = GARDEN.z + Math.sin(a) * GARDEN.r * k;
-  return { id, zone: 'practice', kind: 'pavilion', place, title, at: [x, z], front: [fx, fz], rot: Math.atan2(GARDEN.x - x, GARDEN.z - z), r: 2.2, exp: 'task', task: id };
+  return { id, zone: 'sigei', kind: 'pavilion', place, at: [x, z], front: [GARDEN.x + Math.cos(a) * GARDEN.r * k, GARDEN.z + Math.sin(a) * GARDEN.r * k], rot: Math.atan2(GARDEN.x - x, GARDEN.z - z), r: 2.2, exp: 'station', task: id };
 };
 
 export const SPOTS = [
-  /* 一、生命之路（西） */
-  { id: 'corridor', zone: 'life', kind: 'corridor', place: '生命長廊', title: '從江都到五大洲',
-    lede: '沿著長廊走過大師的一生。點時間軸上的每一個節點，看見一個年輕僧人如何把一個願，化成遍布世界的事業。',
-    at: [-18.5, 4], front: [-14.6, 4.2], rot: Math.PI / 2, r: 4.2, exp: 'timeline',
-    sources: ['bio', 'obit', 'youth', 'yilan', 'open57', 'gongyi', 'obitTime', 'revolution'] },
-  { id: 'quizpav', zone: 'life', kind: 'stele', place: '時光碑林', title: '把一生排回順序',
-    lede: '石碑上的年份被風吹亂了。把大師一生的重要時刻排回正確的順序，再回答三個小問題。',
-    at: [-16, -9.5], front: [-12.6, -8], rot: 1.1, r: 3.2, exp: 'quiz',
-    sources: ['bio', 'obit', 'sanhao1998', 'sanbao'] },
+  { id: 'origin', zone: 'origin', kind: 'stele', place: '源頭碑', title: '三好四給從哪裡來',
+    at: [5.2, 20.4], front: [2.2, 20.8], rot: -Math.PI / 2, r: 3, exp: 'origin',
+    npc: { name: '小蓮', look: 'guide', color: '#b8863b' },
+    sources: ['sanhaoText', 'sanhao1998', 'sigei', 'will', 'creed', 'bio', 'obit', 'wuliang'] },
 
-  /* 二、智慧之境（北） */
-  { id: 'dharmahall', zone: 'wisdom', kind: 'hall', place: '人間佛教殿', title: '佛說的、人要的、淨化的、善美的',
-    lede: '什麼是人間佛教？大師的回答只有四句。點亮殿前的四盞燈，看看每一句守護的是什麼。',
-    at: [-3, -21], front: [-3, -16.2], rot: 0, r: 5, exp: 'sijujiao',
-    sources: ['zongyao', 'sijujiao', 'benhuai2', 'revolution', 'benhuai', 'jingtu'] },
-  { id: 'courtyard', zone: 'wisdom', kind: 'courtyard', place: '四宗旨苑', title: '把理念變成事業',
-    lede: '1967 年開山時立下的四大宗旨，是人間佛教走進社會的四條路。試著把生活裡的事情，放進它所屬的院落。',
-    at: [9.5, -17.5], front: [7.4, -13.4], rot: -0.35, r: 4.6, exp: 'zongzhi',
-    sources: ['sanbao', 'chuandeng', 'obit', 'gongyi'] },
+  { id: 'deed', zone: 'sanhao', kind: 'house', place: '柳丁坡', at: [-17, 9.2], front: [-13.6, 9.4], rot: Math.PI / 2, r: 3, exp: 'station', task: 'deed' },
+  { id: 'speech', zone: 'sanhao', kind: 'house', place: '小組屋', at: [-19.4, -1.2], front: [-16, -1], rot: Math.PI / 2, r: 3, exp: 'station', task: 'speech' },
+  { id: 'heart', zone: 'sanhao', kind: 'pavilion', place: '心湖亭', at: [-15.4, -9.6], front: [-12.6, -8.2], rot: 1.1, r: 2.2, exp: 'station', task: 'heart' },
 
-  /* 三、善念實踐園（東） */
-  gardenSpot(0, 'deed', '行善亭', '做好事'),
-  gardenSpot(1, 'speech', '愛語亭', '說好話'),
-  gardenSpot(2, 'heart', '心蓮亭', '存好心'),
-  gardenSpot(3, 'confidence', '信心亭', '給人信心'),
-  gardenSpot(4, 'joy', '歡喜亭', '給人歡喜'),
-  gardenSpot(5, 'hope', '希望亭', '給人希望'),
-  gardenSpot(6, 'ease', '方便亭', '給人方便'),
+  pav(230, 'confidence', '信心亭'),
+  pav(315, 'hope', '希望亭'),
+  pav(35, 'joy', '歡喜亭'),
+  pav(125, 'ease', '方便亭'),
 
-  /* 四、AI 智慧講堂（東南） */
-  { id: 'lecture', zone: 'hall', kind: 'lecture', place: 'AI 智慧講堂', title: '向知識庫提問',
-    lede: '這裡的 AI 導覽不是大師本人，而是一位依據公開資料回答的學習助理。你可以問大師的生平、人間佛教的思想，或把生活裡的難題拿來，一起想想三好四給可以怎麼用。',
-    at: [8, 17], front: [5.2, 14.2], rot: -0.78, r: 4.4, exp: 'lecture',
-    sources: [] },
-
-  /* 五、願行之境（山頂） */
-  { id: 'vowterrace', zone: 'vow', kind: 'terrace', place: '願行台', title: '把智慧帶回生活',
-    lede: '走到山頂，回頭看看這一路。選一個你願意做到的小行動，帶著一張屬於你的願行卡下山。',
-    at: [0, -4], front: [0, -0.6], rot: 0, r: 4, exp: 'vow',
-    sources: ['sanhaoText', 'sigei', 'will'] },
+  { id: 'media', zone: 'media', kind: 'hall', place: '善念影音堂', title: '延伸觀看：三好四給在世界各地',
+    lede: '殿裡收藏著佛光山、人間衛視與三好微電影節的公開影片。點選就能在新視窗觀看。',
+    at: [-3, -21], front: [-3, -14.5], rot: 0, r: 5, exp: 'videos', sources: [] },
+  { id: 'lecture', zone: 'hall', kind: 'lecture', place: 'AI 智慧講堂', title: '把生活的難題帶進來',
+    lede: '這裡的 AI 學習助理不是星雲大師本人，而是依據公開資料回答的學習夥伴。說說你遇到的情況，一起想想三好四給可以怎麼做；也可以問三好四給與人間佛教的知識。',
+    at: [8, 17], front: [5.2, 14.2], rot: -0.78, r: 4.4, exp: 'lecture', sources: [] },
+  { id: 'vowterrace', zone: 'vow', kind: 'terrace', place: '願行台', title: '把善念帶回生活',
+    lede: '走到山頂，回頭看看這座被你點亮的島。選一個你願意做到的小行動，帶著一張屬於你的願行卡下山。',
+    at: [0, -4], front: [0, -0.4], rot: 0, r: 4, exp: 'vow', sources: ['sanhaoText', 'sigei', 'will'] },
 ];
 
-for (const s of SPOTS) if (s.zone === 'practice') {
-  s.lede = '';
-  s.sources = ['sanhaoText', 'sanhaoWork', 'sigei', 'creed'];
+for (const s of SPOTS) {
+  if (s.exp === 'station') s.sources = ['sanhaoText', 'sanhaoWork', 'sigei', 'creed'];
+  // 放大世界：位置乘上 S，互動點與建築的相對距離不變（四給街的亭子已用放大後的座標）
+  if (s.zone !== 'sigei') {
+    const off = [s.front[0] - s.at[0], s.front[1] - s.at[1]];
+    s.at = [s.at[0] * S, s.at[1] * S];
+    s.front = [s.at[0] + off[0], s.at[1] + off[1]];
+  }
 }
 
-export const START = [0, 28.2];
-export const GATE = { at: [0, 25.6], dock: [0, 31.2] };
+export const GATE = { at: [0, 25.6 * S], dock: [0, 31.2 * S] };
+export const START = [0, GATE.dock[1] - 1];

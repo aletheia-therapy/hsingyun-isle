@@ -1,13 +1,14 @@
 import * as THREE from 'three';
-import { heightAt } from './terrain.js';
-import { GARDEN, GATE } from '../data/spots.js';
+import { heightAt, streamAt } from './terrain.js';
+import { GARDEN, GATE, S } from '../data/spots.js';
+import { TASKS } from '../data/tasks.js';
 
 /**
  * 島上的步道網：環山主步道、善念實踐園的環池小徑、山門參道、登頂步道，
  * 加上通往各地點的支線。旅人只沿著步道走，路線用最短路徑搜尋。
  */
-export const RING = { cx: 0, cz: -3, r: 12.6, n: 72 };
-const GRING = { cx: GARDEN.x, cz: GARDEN.z, r: GARDEN.ring, n: 28 };
+export const RING = { cx: 0, cz: -3 * S, r: 12.6 * S, n: 110 };
+const GRING = { cx: GARDEN.x, cz: GARDEN.z, r: GARDEN.ring, n: 36 };
 
 const ringPt = (R, deg) => { const a = (deg * Math.PI) / 180; return new THREE.Vector2(R.cx + R.r * Math.cos(a), R.cz + R.r * Math.sin(a)); };
 
@@ -29,16 +30,27 @@ export class PathGraph {
     for (let i = 0; i < GRING.n; i++) gIds.push(this.#node(ringPt(GRING, (i * 360) / GRING.n)));
     for (let i = 0; i < GRING.n; i++) this.#link(gIds[i], gIds[(i + 1) % GRING.n], 'small');
     const gWest = gIds[GRING.n / 2];
-    const link = this.#chain([[GRING.cx - GRING.r - 2.6, GRING.cz - 0.6]], 'main');
+    const link = this.#chain([[GRING.cx - GRING.r - 4, GRING.cz - 0.6]], 'main');
     this.#link(gWest, link[0], 'main');
     this.#link(link[0], this.#nearest(this.ringIds, link[0]), 'main');
 
     // 山門參道：從渡口一路往北接上環山步道
-    const gate = this.#chain([[GATE.dock[0], GATE.dock[1] - 0.6], [0, 27.6], [0, 23.4], [-0.6, 19.6], [0, 15.6], [0.4, 11.6]], 'main');
+    const gate = this.#chain([[GATE.dock[0], GATE.dock[1] - 0.6], [0, 27.6 * S], [0, 23.4 * S], [-1.2, 19.6 * S], [0.6, 15.6 * S], [0.8, 11.6 * S]], 'main');
     this.startNode = gate[1];
     this.#link(gate.at(-1), this.#nearest(this.ringIds, gate.at(-1)), 'main');
     // 登頂步道：從環山步道西南側盤旋而上
-    const up = this.#chain([[-8.4, 6.6], [-6.4, 4.6], [-4.4, 3.6], [-2.2, 2.0]], 'small');
+    const up = this.#chain([[-8.4 * S, 6.6 * S], [-6.4 * S, 4.6 * S], [-4.4 * S, 3.6 * S], [-2.2 * S, 2.0 * S], [0, 0.4 * S]], 'small');
+    // 老街：串起希望亭旁的石燈
+    const lamps = TASKS.find((t) => t.id === 'hope')?.quest?.at || [];
+    if (lamps.length) {
+      const street = this.#chain(lamps.map(([x, z]) => [x - 1.6, z]), 'main');
+      this.#link(street[0], this.#nearest(this.ringIds, street[0]), 'main');
+      this.#link(street.at(-1), gIds[Math.round(GRING.n * 0.95)], 'main');
+    }
+    // 三好村的村道
+    const village = this.#chain([[-29.5, 28], [-31.2, 20.6], [-35.4, 8], [-36.4, -2.4], [-33.2, -13.5], [-29.6, -19.8]], 'main');
+    this.#link(village[0], this.#nearest(this.ringIds, village[0]), 'main');
+    this.#link(village.at(-1), this.#nearest(this.ringIds, village.at(-1)), 'main');
     this.#link(up[0], this.#nearest(this.ringIds, up[0]), 'small');
 
     this.spotNode = new Map();
@@ -53,6 +65,30 @@ export class PathGraph {
       this.spotNode.set(s.id, id);
       this.#link(id, near, 'small');
     }
+  }
+
+  /** 步道跨過小溪的地方：回傳 [{ x, z, angle, len, y }]，用來放木橋 */
+  bridges() {
+    const out = [];
+    this.edges.forEach(([ia, ib]) => {
+      const a = this.nodes[ia], b = this.nodes[ib], len = a.distanceTo(b), n = Math.ceil(len / 0.25);
+      let inside = false, t0 = 0;
+      for (let i = 0; i <= n; i++) {
+        const p = new THREE.Vector2().lerpVectors(a, b, i / n);
+        const w = streamAt(p.x, p.y) > 0.05;
+        if (w && !inside) { inside = true; t0 = i / n; }
+        if ((!w || i === n) && inside) {
+          inside = false;
+          const tm = (t0 + i / n) / 2, c = new THREE.Vector2().lerpVectors(a, b, tm);
+          if (out.some((o) => Math.hypot(o.x - c.x, o.z - c.y) < 3)) continue;
+          const dir = new THREE.Vector2().subVectors(b, a).normalize();
+          const span = Math.max(4.4, (i / n - t0) * len + 2.4);
+          const e1 = c.clone().addScaledVector(dir, -span / 2), e2 = c.clone().addScaledVector(dir, span / 2);
+          out.push({ x: c.x, z: c.y, angle: Math.atan2(dir.x, dir.y), len: span, y: Math.max(0.5, Math.min(heightAt(e1.x, e1.y), heightAt(e2.x, e2.y))) });
+        }
+      }
+    });
+    return out;
   }
 
   #node(v) { this.nodes.push(v); this.adj.push([]); return this.nodes.length - 1; }
@@ -110,7 +146,7 @@ export class PathGraph {
           const p = new THREE.Vector2().lerpVectors(a, b, i / n);
           for (const s of [-1, 1]) {
             const x = p.x + side.x * s, z = p.y + side.y * s;
-            pos.push(x, heightAt(x, z) + 0.05, z);
+            pos.push(x, Math.max(heightAt(x, z), streamAt(x, z) > 0 ? 0.3 : -9) + 0.05, z);
             uv.push(s < 0 ? 0 : 1, (len * i) / n / (W * 2));
           }
           if (i < n) { const k = base + i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
@@ -126,8 +162,8 @@ export class PathGraph {
       return m;
     };
     const g = new THREE.Group();
-    g.add(make('main', 0.62, '#d9cfb6'));
-    g.add(make('small', 0.42, '#cfc4a8'));
+    g.add(make('main', 1.15, '#d9cfb6'));
+    g.add(make('small', 0.75, '#cfc4a8'));
     return g;
   }
 }

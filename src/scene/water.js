@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { S } from '../data/spots.js';
 
 /**
  * 早晨的湖水：深處翠綠、島邊轉為透亮的淺綠，岸線有輕輕的水紋；
@@ -43,7 +44,7 @@ export function createWater(sunDir) {
       #include <fog_pars_fragment>
 
       float islandR(float a) {
-        return 32.0 * (1.0 + 0.06 * sin(2.0 * a + 0.7) + 0.04 * sin(3.0 * a + 2.1) + 0.025 * sin(5.0 * a + 4.0));
+        return ${(32 * S).toFixed(2)} * (1.0 + 0.06 * sin(2.0 * a + 0.7) + 0.04 * sin(3.0 * a + 2.1) + 0.025 * sin(5.0 * a + 4.0));
       }
       float n2(vec2 p) { return sin(p.x * 1.7 + sin(p.y * 1.3)) * sin(p.y * 1.9 + sin(p.x * 1.1)); }
 
@@ -99,7 +100,7 @@ export function createWater(sunDir) {
         #include <fog_fragment>
       }`,
   });
-  const geo = new THREE.PlaneGeometry(500, 500, 220, 220);
+  const geo = new THREE.PlaneGeometry(1400, 1400, 170, 170);
   geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = 0.0;
