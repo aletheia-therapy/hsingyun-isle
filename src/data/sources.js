@@ -128,4 +128,12 @@ export const SOURCES = {
     t: '星雲大師〈三皈五戒的人間意義〉《人間佛教學報．藝文》第五十八期',
     u: 'https://buddhism.lib.ntu.edu.tw/FT/JA/714768.pdf',
   },
+  badaren: {
+    t: '《佛說八大人覺經》（東漢安世高譯，維基文庫）',
+    u: 'https://zh.wikisource.org/zh-hant/%E4%BD%9B%E8%AA%AA%E5%85%AB%E5%A4%A7%E4%BA%BA%E8%A6%BA%E7%B6%93',
+  },
+  badarenHY: {
+    t: '杜保瑞〈與星雲大師《八大人覺經十講》的智慧對談〉（臺大佛學數位圖書館）',
+    u: 'https://buddhism.lib.ntu.edu.tw/FULLTEXT/JR-MAG/mag576097.pdf',
+  },
 };

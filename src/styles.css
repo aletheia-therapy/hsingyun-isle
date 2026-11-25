@@ -584,9 +584,9 @@ body:not(.on-island) .help-btn, body.card-open .help-btn, body.drawer-open .help
 @media (pointer: coarse) { .k-desk { display: none !important; } .k-touch { display: inline; } b.k-touch { display: block; } }
 @media (max-width: 860px) {
   body.on-island .places { top: 160px; padding: 8px 12px; width: auto; min-width: 150px; max-width: 64vw; }
-  .places .progress-bar, .places .hud-row, .places .level { display: none; }
+  .places .progress-bar, .places .hud-row, .places .level, .places .trial { display: none; }
   .places.is-open .progress-bar { display: block; }
-  .places.is-open .hud-row, .places.is-open .level { display: flex; }
+  .places.is-open .hud-row, .places.is-open .level, .places.is-open .trial:not([hidden]) { display: flex; }
   .places.is-open { max-height: 60vh; }
   .places-head { cursor: pointer; gap: 10px; }
   .places-head::after { content: '▾'; color: var(--muted); font-size: 12px; }
@@ -653,7 +653,7 @@ body.talk-open .prompt, body.talk-open .hint, body.talk-open .joystick { display
 
 /* ===== 終點：黃昏的煙火與祝福字幕 ===== */
 body.finale .objective, body.finale .places, body.finale .pins, body.finale .prompt, body.finale .hint, body.finale .joystick,
-body.finale .ai-fab, body.finale .help-btn, body.finale .brand, body.finale .discover { opacity: 0 !important; pointer-events: none !important; transition: opacity .8s; }
+body.finale .ai-fab, body.finale .help-btn, body.finale .brand, body.finale .discover, body.finale .mind, body.finale .mind-vig, body.finale .mind-note { opacity: 0 !important; pointer-events: none !important; transition: opacity .8s; }
 .finale { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; display: flex; justify-content: center; padding: 0 20px 4.5vh; pointer-events: none;
   background: linear-gradient(0deg, rgba(10, 12, 28, .55) 0%, rgba(10, 12, 28, .25) 60%, rgba(10, 12, 28, 0) 100%); }
 .fin-box { text-align: center; color: #fff; max-width: 760px; pointer-events: auto; }
@@ -669,3 +669,83 @@ body.finale .ai-fab, body.finale .help-btn, body.finale .brand, body.finale .dis
 .fin-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
 .fin-actions .btn-ghost { color: #fff; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .6); background: rgba(255, 255, 255, .08); }
 @media (max-width: 860px) { .finale { padding-bottom: 5vh; } .fin-eyebrow { letter-spacing: .3em; } }
+
+/* ===== 心魔試煉：自私鬼、懈怠鬼、善念光球 ===== */
+.points-pop.is-minus { color: #6a4a8a; }
+.points-pop.is-minus.is-in { transform: translate(-50%, 40px); }
+.trial { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; padding: 5px 8px 5px 10px; margin: -2px 0 8px; border-radius: 10px; background: #efe9f5; }
+.trial[hidden] { display: none !important; }
+.trial b { font-family: var(--serif); color: #4a3566; white-space: nowrap; }
+.trial span { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.tr-g { font-style: normal; font-size: 12px; line-height: 1.7; padding: 0 8px; border-radius: 999px; background: #5b4a78; color: #fff; white-space: nowrap; }
+.tr-g.is-ok { background: #f0cf7a; color: #5a3d0c; font-weight: 700; }
+
+/* 狀態提示：畫面下方（手機在右下，避開搖桿） */
+.mind { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 9; display: flex; flex-direction: column; align-items: center; padding: 6px 18px; border-radius: 14px; color: #fff; pointer-events: none; text-align: center; line-height: 1.45; box-shadow: 0 6px 20px rgba(0, 0, 0, .25); animation: mindIn .25s ease-out; max-width: min(520px, 70vw); }
+.mind[hidden] { display: none; }
+.mind b { font: 700 15px var(--serif); letter-spacing: .04em; }
+.mind span { font-size: 12.5px; opacity: .92; }
+.mind.is-selfish { background: rgba(58, 30, 78, .93); }
+.mind.is-lazy { background: rgba(72, 80, 98, .93); }
+.mind.is-light { background: rgba(255, 247, 226, .96); color: #6b4a12; box-shadow: 0 0 0 2px rgba(242, 194, 92, .7), 0 6px 20px rgba(0, 0, 0, .2); }
+@keyframes mindIn { from { opacity: 0; } }
+.mind-vig { position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0; }
+.mind-vig[data-c="selfish"] { background: radial-gradient(ellipse at 50% 55%, rgba(40, 12, 58, 0) 50%, rgba(40, 12, 58, .78) 100%); }
+.mind-vig[data-c="lazy"] { background: radial-gradient(ellipse at 50% 55%, rgba(62, 68, 84, 0) 48%, rgba(62, 68, 84, .78) 100%); }
+.mind-vig[data-c="light"] { background: radial-gradient(ellipse at 50% 55%, rgba(255, 214, 120, 0) 56%, rgba(255, 214, 120, .5) 100%); }
+body:not(.on-island) .mind, body:not(.on-island) .mind-vig { display: none; }
+@media (max-width: 860px) {
+  .mind { left: auto; right: 10px; bottom: 80px; transform: none; max-width: calc(100vw - 168px); padding: 5px 12px; align-items: flex-end; text-align: right; }
+  .mind b { font-size: 14px; }
+  .mind span { font-size: 12px; }
+}
+
+/* 心魔與小精靈的名牌 */
+.tag-ghost { background: rgba(40, 30, 56, .92); pointer-events: none; }
+.tag-ghost::after { border-top-color: rgba(40, 30, 56, .92); }
+.tag-ghost b { color: #f1e6ff; }
+.tag-ghost small { color: #c9bcdf; }
+.tag-ghost .tag-st { background: #7a5aa6; }
+.tag-ghost[data-st="roam"] .tag-st { width: 10px; height: 10px; margin: 0 2px 0 5px; }
+.tag-ghost[data-st="chase"] { box-shadow: 0 0 0 2px #e0644f, 0 4px 14px rgba(0, 0, 0, .3); }
+.tag-ghost[data-st="chase"] .tag-st { background: #e0644f; }
+.tag-ghost[data-st="chase"] .tag-st::before { content: '!'; }
+.tag-ghost[data-st="chase"] small { color: #ffc2b4; font-weight: 700; }
+.tag-ghost[data-st="flee"] .tag-st { background: #e2b041; }
+.tag-ghost[data-st="flee"] .tag-st::before { content: '✦'; }
+.tag-ghost[data-st="tamed"] { background: rgba(255, 249, 232, .96); }
+.tag-ghost[data-st="tamed"]::after { border-top-color: rgba(255, 249, 232, .96); }
+.tag-ghost[data-st="tamed"] b { color: #8a5a14; }
+.tag-ghost[data-st="tamed"] small { color: var(--muted); }
+.tag-ghost[data-st="tamed"] .tag-st { background: #e2b041; }
+.tag-ghost[data-st="tamed"] .tag-st::before { content: '✓'; }
+
+/* 第一次出現時的說明 */
+.mind-intro .intro-box { border-top: 5px solid #5b4a78; }
+.mind-intro .intro-eyebrow { color: #6a4a8a; }
+.mi-list { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 10px; }
+.mi-list li { display: flex; gap: 12px; align-items: flex-start; }
+.mi-list b { display: block; font: 700 16px var(--serif); }
+.mi-list span { display: block; font-size: 13.5px; color: var(--ink2); line-height: 1.55; }
+.mi-ic { flex: none; width: 42px; height: 42px; border-radius: 50% 50% 46% 46%; }
+.mi-ic.is-selfish { background: radial-gradient(circle at 34% 42%, #ffb072 0 8%, transparent 9%), radial-gradient(circle at 66% 42%, #ffb072 0 8%, transparent 9%), radial-gradient(ellipse at 50% 85%, #7d5a35 0 22%, transparent 23%), #45345a; }
+.mi-ic.is-lazy { background: radial-gradient(ellipse 13% 4% at 34% 52%, #efe4a4 0 98%, transparent 100%), radial-gradient(ellipse 13% 4% at 66% 52%, #efe4a4 0 98%, transparent 100%), #66718a; border-radius: 50% 50% 40% 40%; }
+.mi-ic.is-orb { background: radial-gradient(circle, #fffaf0 0 26%, #ffd98a 42%, rgba(255, 217, 138, 0) 70%), #fbf1dc; box-shadow: 0 0 14px rgba(255, 207, 112, .7); }
+.mi-tip { margin: 0 0 14px; font-size: 13.5px; color: var(--ink2); background: var(--paper2); border-radius: 10px; padding: 8px 12px; }
+.intro-mind { margin: -6px 0 14px; font-size: 13px; color: var(--ink2); background: #efe9f5; border-radius: 10px; padding: 6px 12px; }
+.intro-mind b { font-family: var(--serif); color: #4a3566; margin-right: 6px; }
+
+/* 感化之後的小卡 */
+.mind-note { position: fixed; left: 50%; bottom: 120px; z-index: 35; width: min(440px, calc(100vw - 28px)); transform: translate(-50%, 16px); opacity: 0; transition: opacity .35s, transform .35s; background: var(--paper); border-radius: 16px; padding: 12px 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); border-left: 5px solid #e2b041; }
+.mind-note.is-in { opacity: 1; transform: translate(-50%, 0); }
+.mn-eyebrow { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .2em; color: #b8863b; }
+.mind-note h3 { margin: 2px 0 4px; font: 900 18px/1.4 var(--serif); }
+.mind-note p { margin: 0 0 6px; font-size: 14.5px; line-height: 1.65; }
+.mind-note blockquote { margin: 6px 0 8px; padding: 6px 12px; border-left: 3px solid #e2b041; background: #fbf6e6; border-radius: 0 10px 10px 0; font: 700 16px/1.7 var(--serif); }
+.mind-note cite { display: block; font: 400 12.5px var(--sans); font-style: normal; color: var(--muted); }
+.mn-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mind-note .mn-tip { margin: 0; font-size: 13px; color: var(--ink2); }
+.mn-foot .btn { flex: none; }
+@media (min-width: 861px) and (max-width: 1240px) { .mind-note { left: calc(50% + 150px); width: min(420px, calc(100vw - 340px)); } }
+@media (max-width: 860px) { .mind-note { bottom: 168px; } .mind-note h3 { font-size: 17px; } .mind-note blockquote { font-size: 15px; } }
+

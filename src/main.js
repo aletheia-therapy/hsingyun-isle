@@ -5,7 +5,7 @@ import { World } from './scene/world.js';
 import { Explorer } from './scene/explorer.js';
 import { TPCamera } from './scene/tpcam.js';
 import { Guide } from './scene/guide.js';
-import { heightAt } from './scene/terrain.js';
+import { heightAt, islandD, STAIR } from './scene/terrain.js';
 import { Card } from './ui/card.js';
 import { Chat, esc } from './ui/chat.js';
 import { music } from './ui/music.js';
@@ -14,6 +14,8 @@ import { GUIDE, ABOUT } from './ui/pages.js';
 import { LEVELS } from './data/games.js';
 import { Fireworks } from './scene/fireworks.js';
 import { sfx } from './ui/sfx.js';
+import { MindTrial, makeAura, GHOSTS } from './scene/ghosts.js';
+import { SOURCES } from './data/sources.js';
 
 const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia('(max-width: 860px)').matches;
@@ -161,11 +163,15 @@ function boot() {
     const cur = LEVELS.find((l) => !l.spots.every((x) => st.done.includes(x)));
     $('level').innerHTML = cur ? `<b>${cur.name}</b><span>${cur.spots.filter((x) => st.done.includes(x)).length} / ${cur.spots.length}</span>` : '<b>全部過關！</b><span>島嶼已完全點亮</span>';
     for (const [id, tg] of tags) { const s = tagStatus(id); if (s !== tg.last) { tg.el.dataset.st = s; tg.last = s; } }
+    // 心魔試煉：完成第一站後出現
+    const tr = $('trial');
+    tr.hidden = !st.done.includes('origin');
+    if (!tr.hidden) tr.innerHTML = `<b>心魔試煉</b><span>${Object.entries(GHOSTS).map(([id, g]) => (st.ghosts?.[id] ? `<i class="tr-g is-ok">✓ ${g.tamedName}</i>` : `<i class="tr-g">${g.name}</i>`)).join('')}</span>`;
   }
   /** 善念值飄字 */
   function floatPoints(n) {
     const el = document.createElement('div');
-    el.className = 'points-pop'; el.textContent = `+${n} 善念值`;
+    el.className = `points-pop${n < 0 ? ' is-minus' : ''}`; el.textContent = `${n < 0 ? '−' : '+'}${Math.abs(n)} 善念值`;
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('is-in'));
     setTimeout(() => el.remove(), 1400);
@@ -514,6 +520,21 @@ function boot() {
       setStyle(tg, 'vis', vis ? 'visible' : 'hidden');
       if (vis) place(tg, ob.item === it, dd);
     }
+    // 心魔與小精靈的名牌
+    for (const tg of ghostTags) {
+      const gh = tg.gh;
+      let vis = on && ghostShown, dd = 0;
+      if (vis) { trial.tagPos(gh, tmp); dd = Math.hypot(gh.pos.x - explorer.pos.x, gh.pos.y - explorer.pos.y); tmp.project(view.camera); vis = onScreen() && dd < 32; }
+      setStyle(tg, 'vis', vis ? 'visible' : 'hidden');
+      if (!vis) continue;
+      place(tg, false, dd);
+      const st = gh.tamed ? 'tamed' : gh.mode === 'chase' ? 'chase' : gh.mode === 'flee' ? 'flee' : 'roam';
+      if (st !== tg.st) {
+        tg.st = st; tg.el.dataset.st = st;
+        tg.el.querySelector('b').textContent = gh.tamed ? gh.tamedName : gh.name;
+        tg.el.querySelector('small').textContent = { tamed: '已感化', chase: '追你中！', flee: '怕光・快追上它', roam: '遊蕩中' }[st];
+      }
+    }
     if (on && ob.target && guide.next) {
       const p = explorer.pos, f = view.forward();
       const dx = guide.next.x - p.x, dz = guide.next.y - p.y;
@@ -729,12 +750,143 @@ function boot() {
     reframe();
   }
 
+  /* ---------- 心魔試煉：自私鬼、懈怠鬼與善念光球（完成第一站之後開始） ---------- */
+  const NOGHOST = /[?&]noghost\b/.test(location.search), NOINTRO = /[?&]nointro\b/.test(location.search);      // 自動化測試用
+  const trialOn = () => !NOGHOST && state.isDone('origin');
+  /** 心魔遊蕩的範圍 [x, z, 半徑]：自私鬼守在山腳的十字路口，懈怠鬼在東邊往四給街的路上 */
+  const HOMES = { selfish: [-4, 13, 7], lazy: [10, 7, 6.5] };
+  const fronts = SPOTS.map((s) => world.spots.get(s.id).front);
+  const allItems = [...world.items.values()].flat();
+  /** 安全的地方：站點前（和島民說話的地方）、組員與心火旁、靜心的蒲團旁、上岸的碼頭。在這裡心魔不會追你 */
+  const SAFE = [
+    ...fronts.map(([x, z]) => [x, z, 5.5]),
+    ...allItems.filter((it) => it.talk || it.kind === 'lotus').map((it) => [it.group.position.x, it.group.position.z, 3.2]),
+    [START[0], START[1], 7],
+  ];
+  const isSafe = (x, z) => SAFE.some(([sx, sz, r]) => (x - sx) ** 2 + (z - sz) ** 2 < r * r);
+  const offLimits = (x, z) => islandD(x, z) > 0.88 || world.inBox(x, z);
+  /** 善念光球放在步道上：每隻心魔的地盤邊各兩顆（撿了就能就近感化它），其餘平均撒在全島（位置固定，每次都一樣） */
+  function orbSpots() {
+    const items = allItems.map((it) => [it.group.position.x, it.group.position.z]), cand = [];
+    for (let x = -40; x <= 40; x += 1.5) for (let z = -40; z <= 40; z += 1.5) {
+      if (islandD(x, z) > 0.86 || world.edge(x, z) > -0.2 || world.deckAt(x, z) || !walkable(x, z) || Math.hypot(START[0] - x, START[1] - z) < 9) continue;
+      if (Math.abs(x - STAIR.x) < STAIR.hw + 0.8 && z < STAIR.z0 + 0.8 && z > STAIR.z1 - 0.8) continue;           // 不放在登山的石階上
+      if (fronts.some(([fx, fz]) => Math.hypot(fx - x, fz - z) < 4.5) || items.some(([ix, iz]) => Math.hypot(ix - x, iz - z) < 2.5)) continue;
+      cand.push([x, z]);
+    }
+    const pick = [], gap = (x, z) => pick.reduce((m, [px, pz]) => Math.min(m, Math.hypot(px - x, pz - z)), Infinity);
+    for (const [hx, hz] of Object.values(HOMES)) for (let k = 0; k < 2; k++) {
+      let best = null, bs = -Infinity;
+      for (const c of cand) {
+        const d = Math.hypot(c[0] - hx, c[1] - hz);
+        if (d < 5 || d > 12 || gap(c[0], c[1]) < 7) continue;
+        if (-Math.abs(d - 8) > bs) { bs = -Math.abs(d - 8); best = c; }
+      }
+      if (best) pick.push(best);
+    }
+    while (pick.length < 12) {
+      let best = null, bd = 7;
+      for (const c of cand) { const d = gap(c[0], c[1]); if (d > bd) { bd = d; best = c; } }
+      if (!best) break;
+      pick.push(best);
+    }
+    return pick.map(([x, z]) => [x, ground(x, z), z]);
+  }
+  const trial = new MindTrial(world.scene, { homes: HOMES, orbs: orbSpots(), ground, safe: isSafe, blocked: (x, z) => offLimits(x, z) || isSafe(x, z), soft: offLimits });
+  const aura = makeAura(world.scene);
+  for (const id of Object.keys(GHOSTS)) if (state.get().ghosts?.[id]) trial.tame(id, true);
+  let shield = 0, ghostShown = null, flashK = 0, vigK = 0, mindLast = '';
+  const lastWarn = {};
+  const ghostTags = trial.ghosts.map((gh) => { const el = makeTag('#5b4a78', gh.name, '遊蕩中'); el.classList.add('tag-ghost'); return { el, gh, vis: 'hidden', st: '' }; });
+
+  /** 第一次遇到：說明心魔試煉怎麼玩 */
+  const mindIntro = $('mind-intro');
+  function openMindIntro() {
+    mindIntro.hidden = false;
+    keys.clear(); joy.set(0, 0); speedNow = 0;
+    requestAnimationFrame(() => mindIntro.classList.add('is-in'));
+    mindIntro.querySelector('.intro-go').focus({ preventScroll: true });
+  }
+  function closeMindIntro() {
+    mindIntro.hidden = true; mindIntro.classList.remove('is-in');
+    state.setGhost({ intro: true });
+    canvas.focus?.();
+    hint('路上發光的小蓮花就是善念光球。', 5000);
+  }
+  mindIntro.querySelector('.intro-go').addEventListener('click', closeMindIntro);
+
+  /** 感化之後：畫面下方浮出的小卡，說明這份轉化背後的佛法（經文出自《佛說八大人覺經》） */
+  const noteEl = $('mind-note');
+  let noteT = 0;
+  const TAME = {
+    selfish: { line: '它放下緊抱的錢袋，開心地繞著你飛。願意分享、給人歡喜，自私就轉成了布施。', q: '菩薩佈施，等念怨親', at: '第六覺知' },
+    lazy: { line: '它睜開眼睛、伸了個懶腰。一次做好一件小小的好事，懈怠就轉成了精進。', q: '懈怠墜落；常行精進，破煩惱惡', at: '第四覺知' },
+  };
+  function tameNote(id) {
+    const g = GHOSTS[id], d = TAME[id];
+    noteEl.innerHTML = `<p class="mn-eyebrow">心念轉化</p><h3>${esc(g.name)}變成了「${esc(g.tamedName)}」</h3><p>${esc(d.line)}</p>
+      <blockquote>「${esc(d.q)}」<cite>——<a href="${SOURCES.badaren.u}" target="_blank" rel="noopener">《佛說八大人覺經》</a>${esc(d.at)}</cite></blockquote>
+      <div class="mn-foot"><p class="mn-tip">修行不是消滅煩惱，而是看見它、轉化它。</p><button type="button" class="btn btn-quiet btn-sm mn-ok">知道了</button></div>`;
+    clearTimeout(noteT);
+    noteEl.hidden = false; noteEl.classList.remove('is-in'); void noteEl.offsetWidth; noteEl.classList.add('is-in');
+    noteEl.querySelector('.mn-ok').addEventListener('click', hideNote);
+    noteT = setTimeout(hideNote, 13000);
+  }
+  function hideNote() { clearTimeout(noteT); noteEl.classList.remove('is-in'); noteT = setTimeout(() => { noteEl.hidden = true; }, 400); canvas.focus?.(); }
+
+  function onTrial(e) {
+    const gh = e.id ? trial.get(e.id) : null;
+    if (e.type === 'orb') {
+      shield = 15;
+      sfx.chime();
+      const p = state.addPoints(`orb:${e.i}`, 2); if (p) floatPoints(p);
+      toast(trial.tamedCount < 2 ? '✦ 善念之光！15 秒內追上心魔，就能感化它' : '✦ 善念之光照亮了你');
+    } else if (e.type === 'warn') {
+      sfx.warn();
+      if (t - (lastWarn[e.id] ?? -1e9) > 60) toast(`⚠ ${gh.name}發現你了！`);
+      lastWarn[e.id] = t;
+    } else if (e.type === 'catch') {
+      sfx.caught();
+      flashK = 1; vigEl.dataset.c = e.id;
+      const lose = Math.min(e.id === 'selfish' ? 5 : 3, state.score);
+      if (lose > 0) { state.addPoints(`ghost:${e.id}:${Date.now()}`, -lose); floatPoints(-lose); }
+      toast(e.id === 'selfish' ? '被自私鬼追上了：只想到自己，善念就少了一點' : '被懈怠鬼抓住了，全身懶洋洋的……');
+    } else if (e.type === 'tame') {
+      sfx.bless();
+      state.setGhost({ [e.id]: true });
+      const p = state.addPoints(`tame:${e.id}`, 10); if (p) floatPoints(p);
+      tameNote(e.id);
+      if (trial.tamedCount === 2) setTimeout(() => { toast('✦ 心魔試煉完成！兩隻心魔都變成了小精靈'); const b = state.addPoints('trial:done', 10); if (b) floatPoints(b); }, 1800);
+    }
+  }
+
+  /** 畫面下方的狀態提示，和畫面四周的氣息（被追時暗紫、懈怠時灰、受善念之光守護時金色） */
+  const mindEl = $('mind'), vigEl = $('mind-vig');
+  function renderMind(dt, paused, canChase) {
+    const p = explorer.pos;
+    let html = '', cls = '', k = 0, c = '';
+    if (ghostShown && !paused) {
+      const th = trial.threat(p), slow = trial.speedFactor(p, shield, canChase);
+      if (shield > 0) { cls = 'is-light'; c = 'light'; k = 0.55; html = `<b>✦ 善念之光守護中・${Math.ceil(shield)}</b><span>${trial.tamedCount < 2 ? '追上心魔、碰到它，就能感化它' : '兩隻心魔都已經感化了'}</span>`; }
+      else if (trial.debuff > 0) { cls = 'is-lazy'; c = 'lazy'; k = 0.75; html = '<b>Z z　懶洋洋的……</b><span>被懈怠鬼抓住了，等一下就有力氣</span>'; }
+      else if (th.gh) { cls = `is-${th.gh.id}`; c = th.gh.id; k = 0.3 + th.k * 0.6; html = `<b>⚠ ${esc(th.gh.name)}在追你！</b><span>繞開它、走到島民身邊，或去撿發光的善念光球</span>`; }
+      else if (slow < 0.93) { cls = 'is-lazy'; c = 'lazy'; k = (1 - slow) * 1.3; html = '<b>腳步變沉重了……</b><span>懈怠鬼就在附近，離它遠一點</span>'; }
+    }
+    const key = cls + html;
+    if (key !== mindLast) { mindLast = key; mindEl.hidden = !html; if (html) { mindEl.className = `mind ${cls}`; mindEl.innerHTML = html; } }
+    if (c && !flashK) vigEl.dataset.c = c;
+    flashK = Math.max(0, flashK - dt * 1.2);
+    vigK += (Math.min(1, k + flashK) - vigK) * Math.min(1, dt * 4);
+    vigEl.style.opacity = vigK < 0.005 ? '0' : vigK.toFixed(3);
+  }
+
   /* ---------- 鍵盤與觸控搖桿 ---------- */
   const MOVE = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1], KeyA: [-1, 0], ArrowLeft: [-1, 0], KeyD: [1, 0], ArrowRight: [1, 0] };
   const typing = (e) => /INPUT|TEXTAREA|SELECT/.test(e.target?.tagName || '') || e.target?.isContentEditable;
   const intro = $('intro');
   addEventListener('keydown', (e) => {
     if (!intro.hidden) { if (e.key === 'Enter' || e.key === 'Escape' || e.code === 'Space') { e.preventDefault(); closeIntro(); } return; }
+    if (!mindIntro.hidden) { if (e.key === 'Enter' || e.key === 'Escape' || e.code === 'Space') { e.preventDefault(); closeMindIntro(); } return; }
     if (finale) { if (e.key === 'Escape') endFinale(); return; }
     if (talking) {
       if (e.key === 'Escape') { closeTalk(); return; }
@@ -746,6 +898,7 @@ function boot() {
       if (!$('modal').hidden) closeModal();
       else if (!drawer.hidden) closeDrawer();
       else if (card.open) closeCard();
+      else if (!noteEl.hidden) hideNote();
       return;
     }
     if (typing(e) || !onIsland || card.open || !$('modal').hidden) return;
@@ -892,6 +1045,7 @@ function boot() {
   if (/[?&]island\b/.test(location.search)) enterIsland();
 
   /* ---------- 迴圈 ---------- */
+  const levelupEl = $('levelup');
   const clock = new THREE.Clock();
   let t = 0, timeScale = 1, fpsAcc = 0, fpsN = 0, lowN = 0, highN = 0, lastDrop = -1e9;
   const mv = new THREE.Vector2();
@@ -899,7 +1053,9 @@ function boot() {
     const raw = clock.getDelta();
     const dt = Math.min(raw, 0.05) * timeScale;
     t += dt;
-    if (onIsland && !card.open && modal.hidden && intro.hidden && !talking && !finale) {
+    const paused = !onIsland || card.open || !modal.hidden || !intro.hidden || !mindIntro.hidden || !!talking || !!finale || !drawer.hidden || !levelupEl.hidden;
+    const canChase = !paused && trialOn() && activeQuest()?.task.quest.type !== 'escort';
+    if (onIsland && !card.open && modal.hidden && intro.hidden && mindIntro.hidden && !talking && !finale) {
       mv.set(0, 0);
       for (const k of keys) if (MOVE[k]) { mv.x += MOVE[k][0]; mv.y += MOVE[k][1]; }
       // 搖桿：中間一小圈不動（手指輕放不會亂走），推到七成左右就是全速
@@ -915,7 +1071,7 @@ function boot() {
         lastDir.set(dx / dl, dz / dl);
       }
       // 起步、停下都有一點加減速，不會瞬間全速或瞬間定住
-      const goal = pushing ? WALK * want : 0;
+      const goal = pushing ? WALK * want * trial.speedFactor(explorer.pos, shield, canChase) : 0;      // 懈怠鬼在旁邊時，腳步變沉重
       speedNow += (goal - speedNow) * (1 - Math.exp(-(goal > speedNow ? 9 : 13) * dt));
       let moved = false;
       if (speedNow > 0.05) {
@@ -944,6 +1100,15 @@ function boot() {
     explorer.update(dt);
     for (const v of world.npcs.values()) v.watch(explorer.pos.x, explorer.pos.y);
     for (const w of watchers) w.watch(explorer.pos.x, explorer.pos.y);
+    // 心魔試煉：心魔遊蕩、追人；撿光球、感化
+    const showG = trialOn() && !finale;
+    if (showG !== ghostShown) { ghostShown = showG; trial.visible = showG; }
+    if (ghostShown && !paused && !NOINTRO && !state.get().ghosts?.intro) openMindIntro();
+    if (!paused) shield = Math.max(0, shield - dt);
+    const pscale = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(view.camera.fov) / 2));
+    for (const e of trial.update(dt, explorer.pos, { paused, canChase, canGreet: !paused, shield, scale: pscale })) onTrial(e);
+    aura.update(dt, explorer.pos.x, explorer.object.position.y, explorer.pos.y, shield > 0 && ghostShown, pscale);
+    renderMind(dt, paused, canChase);
     if (onIsland) renderObjective(dt);
     if (finale) finaleTick(dt);
     // 島嶼光明度：善念越多，畫面越明亮；放煙火時天色轉為黃昏
@@ -981,6 +1146,7 @@ function boot() {
   window.__isle = {
     world, explorer, card, view, state, renderer, guide, enterIsland, openDrawer, openSpot, startQuest, setNav, closeIntro, openTalk, startFinale, endFinale, fw,
     get finale() { return finale; },
+    trial, get shield() { return shield; }, set shield(v) { shield = v; },
     keys, joy, buildMs, get near() { return nearId; }, get nearItem() { return nearItem; }, get talking() { return talking; }, get objective() { return objective(); }, get pixelRatio() { return prNow; },
     teleport(x, z) { explorer.place(x, z); },
     set timeScale(v) { timeScale = v; },

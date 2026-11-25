@@ -2,7 +2,7 @@ import { SPOTS, ZONES } from './data/spots.js';
 
 /** 學習進度：走過的地點、任務選擇、小測驗成績、願行卡。存在瀏覽器本機。 */
 const KEY = 'hsingyun-isle:v1';
-const blank = () => ({ visited: [], done: [], tasks: {}, quiz: null, timeline: [], vow: null, chat: [], points: {}, finale: false });
+const blank = () => ({ visited: [], done: [], tasks: {}, quiz: null, timeline: [], vow: null, chat: [], points: {}, finale: false, ghosts: {} });
 
 let s = blank();
 try { s = { ...blank(), ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { /* 從零開始 */ }
@@ -20,6 +20,8 @@ export const state = {
   setQuiz(q) { s.quiz = q; save(); },
   seeNode(i) { if (!s.timeline.includes(i)) { s.timeline.push(i); save(); } },
   setVow(v) { s.vow = v; save(); },
+  /** 心魔試煉：看過說明了沒、哪幾隻心魔已經被感化（{ intro, selfish, lazy }） */
+  setGhost(data) { s.ghosts = { ...(s.ghosts || {}), ...data }; save(); },
   /** 看過最後的煙火了 */
   setFinale(v) { if (s.finale !== v) { s.finale = v; save(); } },
   pushChat(m) { s.chat.push(m); s.chat = s.chat.slice(-40); save(); },

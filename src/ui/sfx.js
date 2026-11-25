@@ -1,7 +1,7 @@
 import { music } from './music.js';
 
 /**
- * 煙火的聲音：全部用 Web Audio 即時合成（不使用任何音效檔，沒有版權問題）。
+ * 音效（煙火、心魔試煉）：全部用 Web Audio 即時合成（不使用任何音效檔，沒有版權問題）。
  * 音樂關掉時也不發出音效。
  */
 let ctx = null, out = null, noise = null;
@@ -62,4 +62,21 @@ export const sfx = {
       n.connect(f); f.connect(g); g.connect(out); n.start(t, Math.random() * 1.5); n.stop(t + 0.06);
     }
   },
+  /** 一個柔和的音：sine 或 triangle，音高可以滑動 */
+  tone(f0, f1, t0, dur, peak, type = 'sine') {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime + t0;
+    const o = c.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = c.createGain(); env(g, t, peak, 0.012, dur);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
+  },
+  /** 撿到善念光球：清亮的鈴聲 */
+  chime() { [[1318, 0], [1976, 0.07], [2637, 0.14]].forEach(([f, d]) => sfx.tone(f, f, d, 0.9, 0.08)); },
+  /** 心魔發現你了：低低的、搖晃的一聲 */
+  warn() { sfx.tone(220, 150, 0, 0.5, 0.09, 'triangle'); sfx.tone(233, 156, 0.05, 0.5, 0.06, 'triangle'); },
+  /** 被追上了：往下掉的「嗚」 */
+  caught() { sfx.tone(392, 131, 0, 0.6, 0.12, 'triangle'); sfx.tone(196, 98, 0.08, 0.7, 0.08); },
+  /** 感化：往上走的琶音 */
+  bless() { [523, 659, 784, 1047, 1319].forEach((f, i) => sfx.tone(f, f, i * 0.09, 0.8, 0.07)); },
 };

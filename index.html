@@ -74,6 +74,7 @@
       <div id="badges" class="badges" aria-label="已獲得的徽章"></div>
     </div>
     <div id="level" class="level"></div>
+    <div id="trial" class="trial" hidden></div>
     <div id="zone-list" class="zone-list"></div>
     <p class="places-foot">照著畫面上方的「目前目標」走就可以完成全部。想先去別的地方，也可以點上面的地點。</p>
   </nav>
@@ -83,6 +84,8 @@
     <div class="ob-text"></div>
   </div>
   <div id="hint" class="hint" role="status"></div>
+  <div id="mind" class="mind" hidden></div>
+  <div id="mind-vig" class="mind-vig" aria-hidden="true"></div>
   <button type="button" id="prompt" class="prompt" hidden></button>
   <div id="joystick" class="joystick" hidden aria-hidden="true"><i></i></div>
   <button type="button" id="music-btn" class="voice-btn music-btn" aria-pressed="true"><span>音樂：開</span></button>
@@ -121,11 +124,28 @@
       </ol>
       <p class="intro-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵走路，鏡頭會自動轉到你身後・拖曳畫面可以轉視角</p>
       <p class="intro-keys intro-touch">左下角搖桿走路，鏡頭會自動轉到你身後・拖曳畫面可以轉視角</p>
+      <p class="intro-mind"><b>心魔試煉</b>完成第一站後，島上的自私鬼、懈怠鬼會追你；撿起路上發光的善念光球，就能把它們感化成小精靈。</p>
       <button type="button" class="btn btn-primary btn-lg intro-go">知道了，出發！</button>
+    </div>
+  </div>
+  <!-- 心魔試煉：第一次出現時的說明 -->
+  <div id="mind-intro" class="intro mind-intro" hidden>
+    <div class="intro-box" role="dialog" aria-modal="true" aria-labelledby="mind-title">
+      <p class="intro-eyebrow">新的試煉</p>
+      <h2 id="mind-title">心魔試煉</h2>
+      <p class="intro-lede">走在行善的路上，心裡的習氣也會跑出來。島上有兩隻心魔在遊蕩：</p>
+      <ul class="mi-list">
+        <li><i class="mi-ic is-selfish" aria-hidden="true"></i><div><b>自私鬼</b><span>只想到自己。發現你就會追上來；被它追上，善念值會減少。</span></div></li>
+        <li><i class="mi-ic is-lazy" aria-hidden="true"></i><div><b>懈怠鬼</b><span>讓人提不起勁。靠近它，腳步會越來越沉重；被它抓住，會懶洋洋好幾秒。</span></div></li>
+        <li><i class="mi-ic is-orb" aria-hidden="true"></i><div><b>善念光球</b><span>路上發光的小蓮花。撿起來，善念之光會守護你 15 秒，心魔會怕得躲開；這時追上去碰到它，就能把它感化成友善的小精靈。</span></div></li>
+      </ul>
+      <p class="mi-tip">遇到心魔，可以繞開它；站點前和島民身邊是安全的。修行不是消滅煩惱，而是看見它、轉化它。</p>
+      <button type="button" class="btn btn-primary btn-lg intro-go">知道了，繼續旅程</button>
     </div>
   </div>
   <div id="talk" class="talk" hidden></div>
   <div id="discover" class="discover" role="status" hidden></div>
+  <div id="mind-note" class="mind-note" role="status" hidden></div>
   <div id="levelup" class="levelup" hidden></div>
   <div id="finale" class="finale" hidden></div>
   <div id="breath" class="breath" hidden><i></i><b>吸氣……</b><small></small><span>站著不動，跟著光圈慢慢呼吸</span></div>
