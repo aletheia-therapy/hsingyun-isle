@@ -5,6 +5,6 @@
   "type": "module",
   "description": "星雲之島：AI 人間佛教探索與實踐平台",
   "scripts": {
-    "test": "node tests/retrieve.test.js"
+    "test": "node tests/retrieve.test.js && node tests/api.test.js"
   }
 }

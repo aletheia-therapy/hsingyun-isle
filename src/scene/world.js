@@ -213,10 +213,12 @@ export class World {
       }
       return best;
     };
-    const blocked = spots.map((s) => [s.at[0], s.at[1], (s.r || 3.2) + 0.6]);
+    const blocked = spots.map((s) => [s.at[0], s.at[1], Math.min(s.r || 3.2, 3) + 0.6]);
+    const boxes = [...this.spots.values()].map((s) => s.bounds.clone().expandByScalar(0.9));
+    const inBox = (x, z) => boxes.some((b) => x > b.min.x && x < b.max.x && z > b.min.z && z < b.max.z);
     const ponds = PONDS.map((p) => [p.x, p.z, p.s * 1.25]);
     const free = (x, z, gap) => pathDist(x, z) > gap + 0.7
-      && !blocked.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r)
+      && !blocked.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r) && !inBox(x, z)
       && !ponds.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r)
       && !this.reserved.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r);
     const inland = (x, z, lim = 0.86) => islandD(x, z) < lim;

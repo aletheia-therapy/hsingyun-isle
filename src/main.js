@@ -356,6 +356,7 @@ function boot() {
   // 自動化測試用（不影響使用者）
   window.__isle = {
     world, explorer, card, view, renderer, goTo, state, enterIsland, openDrawer,
+    jump(id) { const s = world.spots.get(id); enterIsland(); explorer.place(s.frontV.x, s.frontV.y); arrive(id); },
     get here() { return here; }, get destination() { return destination; },
     set timeScale(v) { timeScale = v; },
   };
