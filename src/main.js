@@ -785,7 +785,7 @@ function boot() {
       if (best) pick.push(best);
     }
     while (pick.length < 12) {
-      let best = null, bd = 7;
+      let best = null, bd = 6;
       for (const c of cand) { const d = gap(c[0], c[1]); if (d > bd) { bd = d; best = c; } }
       if (!best) break;
       pick.push(best);
