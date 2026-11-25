@@ -71,7 +71,7 @@ export class Chat {
   render() {
     const msgs = state.get().chat;
     if (!msgs.length) {
-      this.log.innerHTML = `<div class="msg msg-ai msg-hello"><p>你好，我是 AI 學習助理。你可以選擇上方三種模式：<br>・<b>生活實踐</b>：把生活裡的難題拿來，一起想三好四給可以怎麼做<br>・<b>思想理解</b>：把三好四給、人間佛教的觀念說得白話一點<br>・<b>知識導覽</b>：三好四給的由來與星雲大師的生平<br>資料裡找不到的，我會老實說無法確認。回答可以按「朗讀」聽。</p></div>`;
+      this.log.innerHTML = `<div class="msg msg-ai msg-hello"><p>你好，我是 AI 學習助理。你可以選擇上方三種模式：<br>・<b>生活實踐</b>：把生活裡的難題拿來，一起想三好四給可以怎麼做<br>・<b>思想理解</b>：把三好四給、人間佛教的觀念說得白話一點<br>・<b>知識導覽</b>：三好四給的由來與星雲大師的生平<br>資料裡找不到的，我會老實說無法確認。</p></div>`;
       return;
     }
     this.log.innerHTML = msgs.map((m, i) => this.#msg(m, i)).join('');

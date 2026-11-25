@@ -251,28 +251,28 @@ export class World {
     const tree = (r) => (x, y, z) => this.circles.push([x, z, r]);
 
     // 松林：山巒、北側與島的外圈
-    place(300, 30000, anywhere(0.2, 0.88), (x, z) => (hillAt(x, z) > 1.6 || z < -14 * S || Math.hypot(x, z) > 25 * S) && inland(x, z) && free(x, z, 2.2) && dry(x, z),
+    place(170, 30000, anywhere(0.2, 0.88), (x, z) => (hillAt(x, z) > 1.6 || z < -14 * S || Math.hypot(x, z) > 25 * S) && inland(x, z) && free(x, z, 2.2) && dry(x, z),
       (x, y, z, i) => { pine(g, x, y - 0.05, z, 1.1 + rand() * 0.9, i + 1); this.circles.push([x, z, 0.45]); });
     // 闊葉林：滿島的樹，東北與西南帶一點秋色
-    place(260, 30000, anywhere(0.12, 0.86), (x, z) => inland(x, z) && free(x, z, 2.4) && hillAt(x, z) < 4 && dry(x, z),
+    place(170, 30000, anywhere(0.12, 0.86), (x, z) => inland(x, z) && free(x, z, 2.4) && hillAt(x, z) < 4 && dry(x, z),
       (x, y, z, i) => { this.circles.push([x, z, 0.35]); roundTree(g, x, y - 0.05, z, 1.0 + rand() * 0.7, i + 7, (x > 14 * S && z < -6 * S) || (x < -14 * S && z > 8 * S) ? rand() > 0.35 : rand() > 0.9); });
     // 竹林：三好村後方、講堂旁、溪邊
-    place(56, 9000, () => [rand() > 0.5 ? -24 * S + rand() * 8 * S : 8 * S + rand() * 9 * S, rand() > 0.5 ? -6 * S + rand() * 16 * S : 17 * S + rand() * 7 * S], (x, z) => inland(x, z, 0.88) && free(x, z, 1.4) && dry(x, z),
+    place(34, 9000, () => [rand() > 0.5 ? -24 * S + rand() * 8 * S : 8 * S + rand() * 9 * S, rand() > 0.5 ? -6 * S + rand() * 16 * S : 17 * S + rand() * 7 * S], (x, z) => inland(x, z, 0.88) && free(x, z, 1.4) && dry(x, z),
       (x, y, z, i) => { bamboo(g, x, y, z, 1.1 + rand() * 0.4, i + 11); this.circles.push([x, z, 0.6]); });
     // 梅與櫻：四給街外圈、山門參道、願行台的登山路
-    place(40, 9000, () => { const a = rand() * Math.PI * 2, r = GARDEN.r + 3 + rand() * 7; return [GARDEN.x + Math.cos(a) * r, GARDEN.z + Math.sin(a) * r]; }, (x, z) => inland(x, z) && free(x, z, 1.2) && dry(x, z),
+    place(26, 9000, () => { const a = rand() * Math.PI * 2, r = GARDEN.r + 2.5 + rand() * 5; return [GARDEN.x + Math.cos(a) * r, GARDEN.z + Math.sin(a) * r]; }, (x, z) => inland(x, z) && free(x, z, 1.2) && dry(x, z),
       (x, y, z, i) => { plum(g, x, y, z, 1.2 + rand() * 0.4, i + 21); this.circles.push([x, z, 0.3]); });
-    place(40, 9000, nearPath(2.6, 5), (x, z) => inland(x, z) && free(x, z, 1.6) && dry(x, z) && (z > 10 * S || Math.hypot(x, z + 4 * S) < 13 * S),
+    place(26, 9000, nearPath(2.6, 5), (x, z) => inland(x, z) && free(x, z, 1.6) && dry(x, z) && (z > 10 * S || Math.hypot(x, z + 4 * S) < 13 * S),
       (x, y, z, i) => { plum(g, x, y, z, 1.1 + rand() * 0.4, i + 51); this.circles.push([x, z, 0.3]); });
     // 花圃：沿著步道兩旁
-    place(260, 20000, nearPath(1.9, 3.6), (x, z) => inland(x, z) && free(x, z, 0.6) && dry(x, z),
+    place(220, 20000, nearPath(1.9, 3.6), (x, z) => inland(x, z) && free(x, z, 0.6) && dry(x, z),
       (x, y, z, i) => flowerBed(g, x, y, z, 0.9 + rand() * 0.6, i + 5));
     // 灌叢、山石與草叢
-    place(320, 20000, anywhere(0.1, 0.9), (x, z) => inland(x, z, 0.92) && free(x, z, 0.7) && dry(x, z),
+    place(240, 20000, anywhere(0.1, 0.9), (x, z) => inland(x, z, 0.92) && free(x, z, 0.7) && dry(x, z),
       (x, y, z, i) => shrub(g, x, y, z, 0.7 + rand() * 0.7, i));
-    place(90, 9000, anywhere(0.15, 0.86), (x, z) => (hillAt(x, z) > 1.0 || streamAt(x + 2.6, z) > 0 || streamAt(x - 2.6, z) > 0) && inland(x, z) && free(x, z, 0.8) && dry(x, z),
+    place(60, 9000, anywhere(0.15, 0.86), (x, z) => (hillAt(x, z) > 1.0 || streamAt(x + 2.6, z) > 0 || streamAt(x - 2.6, z) > 0) && inland(x, z) && free(x, z, 0.8) && dry(x, z),
       (x, y, z, i) => { const r = 0.3 + rand() * 0.6; boulder(g, x, y + 0.05, z, r, i + 3); this.circles.push([x, z, r * 1.1]); });
-    place(3200, 40000, anywhere(0.08, 0.88), (x, z) => inland(x, z, 0.9) && free(x, z, 0.4) && hillAt(x, z) < 6 && dry(x, z),
+    place(1800, 40000, anywhere(0.08, 0.88), (x, z) => inland(x, z, 0.9) && free(x, z, 0.4) && hillAt(x, z) < 6 && dry(x, z),
       (x, y, z, i) => tuft(g, x, y - 0.02, z, 0.8 + rand() * 0.8, i + 3));
     // 步道旁的石燈籠（每隔一段路一盞）
     const lit = [];
@@ -284,7 +284,7 @@ export class World {
       lantern(g, x, heightAt(x, z), z, 1, true); lit.push([x, z]); this.circles.push([x, z, 0.3]);
     }
     // 岸邊礁石
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 44; i++) {
       const a = rand() * Math.PI * 2, d = 0.96 + rand() * 0.09;
       const x = Math.cos(a) * islandR(a) * d, z = Math.sin(a) * islandR(a) * d;
       if (Math.abs(x) < 4 && z > 20 * S) continue;

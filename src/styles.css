@@ -389,7 +389,7 @@ body.card-open .prompt { display: none; }
 body.card-open .quest-bar { opacity: 0; }
 
 .voice-btn { position: absolute; top: 16px; right: 16px; z-index: 12; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 999px; padding: 8px 14px 8px 12px; background: rgba(251, 247, 238, .94); box-shadow: var(--shadow); cursor: pointer; font-size: 13px; font-weight: 500; }
-.voice-btn::before { content: ''; width: 16px; height: 16px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z'/%3E%3C/svg%3E") center/contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z'/%3E%3C/svg%3E") center/contain no-repeat; }
+.voice-btn::before { content: '♪'; font-size: 15px; line-height: 1; }
 .voice-btn[aria-pressed="true"] { color: var(--jade2); }
 .voice-btn[aria-pressed="false"] { color: var(--muted); }
 body:not(.on-island) .voice-btn { top: 20px; }
@@ -450,3 +450,14 @@ body:not(.on-island) .joystick, body.card-open .joystick { display: none; }
   .home-keys { display: none; }
   .mt { grid-template-columns: 1fr; }
 }
+
+.run-btn { position: absolute; right: 20px; bottom: 84px; z-index: 12; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 999px; padding: 7px 16px 7px 8px; background: rgba(251, 247, 238, .94); box-shadow: var(--shadow); cursor: pointer; font-size: 14px; font-weight: 500; }
+.run-btn[aria-pressed="true"] { background: #c4724f; color: #fff; }
+.run-btn[aria-pressed="true"] kbd { background: rgba(255, 255, 255, .25); color: #fff; border-color: transparent; }
+body:not(.on-island) .run-btn, body.card-open .run-btn, body.drawer-open .run-btn { display: none; }
+@media (max-width: 860px) { .run-btn { bottom: 84px; right: 14px; } }
+
+.place-no { font-style: normal; color: var(--zc, var(--gold)); margin-right: 3px; font-size: 13px; }
+details.tk-reflect { margin-top: 12px; }
+details.tk-reflect > summary { cursor: pointer; font: 700 15px var(--serif); color: var(--jade2); }
+details.tk-reflect[open] > summary { margin-bottom: 6px; }

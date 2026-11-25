@@ -124,6 +124,7 @@ export class Explorer {
 
   update(dt) {
     this.clock += dt;
+    this.step = (this.step || 0) + dt * (this.stride || 9);
     if (this.pauseT > 0) this.pauseT -= dt;
     const walking = (this.path.length && this.pauseT <= 0) || this.manualMoving;
     if (this.path.length && this.pauseT <= 0) {
@@ -151,10 +152,10 @@ export class Explorer {
       }
     }
     if (walking) {
-      this.body.position.y = Math.abs(Math.sin(this.clock * 9)) * 0.03;
-      this.legs.forEach((l, i) => { l.rotation.x = Math.sin(this.clock * 9 + i * Math.PI) * 0.55; });
-      this.arms.forEach((a, i) => { a.rotation.x = Math.sin(this.clock * 9 + i * Math.PI + Math.PI) * (i ? 0.25 : 0.45); });
-      this.lantern.rotation.x = -this.arms[1].rotation.x * 0.8 + Math.sin(this.clock * 9) * 0.08;
+      this.body.position.y = Math.abs(Math.sin(this.step)) * 0.03;
+      this.legs.forEach((l, i) => { l.rotation.x = Math.sin(this.step + i * Math.PI) * (this.stride > 12 ? 0.85 : 0.6); });
+      this.arms.forEach((a, i) => { a.rotation.x = Math.sin(this.step + i * Math.PI + Math.PI) * (i ? 0.25 : 0.45); });
+      this.lantern.rotation.x = -this.arms[1].rotation.x * 0.8 + Math.sin(this.step) * 0.08;
     } else {
       this.body.position.y = Math.sin(this.clock * 1.8) * 0.012;
       this.legs.forEach((l) => { l.rotation.x *= 0.85; });

@@ -14,6 +14,7 @@ import { heightAt } from './scene/terrain.js';
 import { Card } from './ui/card.js';
 import { Chat, esc } from './ui/chat.js';
 import { voice } from './ui/voice.js';
+import { music } from './ui/music.js';
 import { state } from './state.js';
 import { GUIDE, ABOUT } from './ui/pages.js';
 
@@ -21,6 +22,9 @@ const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia('(max-width: 860px)').matches;
 const touch = matchMedia('(pointer: coarse)').matches;
 const TALK_R = 2.4;
+/** 建議路線：由淺入深。先是只要選擇的站，再到需要動手的任務，最後是帶路 */
+const ORDER = ['origin', 'speech', 'confidence', 'deed', 'heart', 'joy', 'hope', 'ease', 'lecture', 'media', 'vowterrace'];
+const NUM = '①②③④⑤⑥⑦⑧⑨⑩⑪';
 
 function fail(msg) {
   $('error-msg').textContent = msg;
@@ -73,7 +77,7 @@ function boot() {
   composer.addPass(new OutputPass());
 
   /* ---------- 狀態 ---------- */
-  let onIsland = false, here = null, nearId = null, navTarget = null;
+  let onIsland = false, here = null, nearId = null, navTarget = null, running = false;
   const keys = new Set();
   const joy = new THREE.Vector2();
   const chatSubs = new Set();
@@ -97,7 +101,7 @@ function boot() {
     <section class="zone" style="--zc:${z.color}">
       <h3 class="zone-h"><span class="zone-no">${z.no}</span><span class="zone-name">${esc(z.name)}</span><span class="zone-n" data-z="${z.id}"></span></h3>
       <ol class="zone-spots${SPOTS.filter((s) => s.zone === z.id).length > 2 ? ' is-grid' : ''}">${SPOTS.filter((s) => s.zone === z.id).map((s) => { const t = taskOf(s.id); return `
-        <li><button type="button" class="place" data-id="${s.id}"><span class="place-name">${esc(t ? t.virtue : s.place)}</span><span class="place-sub">${esc(t ? t.npc.name : z.sub)}</span></button></li>`; }).join('')}
+        <li><button type="button" class="place" data-id="${s.id}"><span class="place-name"><i class="place-no">${NUM[ORDER.indexOf(s.id)] || ''}</i>${esc(t ? t.virtue : s.place)}</span><span class="place-sub">${esc(t ? t.npc.name : z.sub)}</span></button></li>`; }).join('')}
       </ol>
     </section>`).join('');
   zoneList.querySelectorAll('.place').forEach((b) => b.addEventListener('click', () => setNav(b.dataset.id)));
@@ -212,7 +216,7 @@ function boot() {
       const v = world.npcs.get(q.spot.id);
       const g = v.group.position, d = Math.hypot(p.x - g.x, p.y - g.z);
       if (d > 1.6) {
-        const step = Math.min(d - 1.4, 4.2 * dt);
+        const step = Math.min(d - 1.4, (running ? 11 : 7.5) * dt);
         const dx = (p.x - g.x) / d, dz = (p.y - g.z) / d;
         g.x += dx * step; g.z += dz * step; g.y = ground(g.x, g.z);
         v.group.rotation.y = Math.atan2(dx, dz); v.moving = true;
@@ -226,7 +230,7 @@ function boot() {
     for (const it of world.items.get(q.task.id)) {
       if (it.done) continue;
       const gp = it.group.position;
-      if (Math.hypot(gp.x - p.x, gp.z - p.y) < (it.kind === 'lamp' ? 1.5 : 1.1)) { it.collect(); got = true; }
+      if (Math.hypot(gp.x - p.x, gp.z - p.y) < (it.kind === 'lamp' ? 2.2 : 1.7)) { it.collect(); got = true; }
     }
     if (got) {
       const pr = questProgress(q.task.id);
@@ -278,7 +282,11 @@ function boot() {
       complete: (id) => {
         const was = state.isDone(id);
         state.complete(id);
-        if (!was) { world.bloom(id); const z = zoneOf(id), p = state.zoneProgress(z.id); toast(p.done >= p.total ? `✦ 完成「${z.name}」` : '✦ 島上又亮了一角'); }
+        if (!was) {
+          world.bloom(id); const z = zoneOf(id), p = state.zoneProgress(z.id); toast(p.done >= p.total ? `✦ 完成「${z.name}」` : '✦ 島上又亮了一角');
+          const next = ORDER.find((x) => !state.isDone(x));
+          if (next) { navTarget = next; renderLists(); hint(`下一站：${labelOf(SPOTS.find((x) => x.id === next))}。關掉面板後，跟著金色箭頭走。`); }
+        }
       },
       isDone: (id) => state.isDone(id),
       openChat: (q, mode) => openDrawer(q, mode),
@@ -352,6 +360,7 @@ function boot() {
     if (e.code === 'KeyM') { if (view.distT > 20) { view.distT = 9; view.pitchT = 0.36; } else { view.distT = 34; view.pitchT = 0.95; } }
     if (e.code === 'KeyQ') keys.add('TurnL');
     if (e.code === 'KeyE') keys.add('TurnR');
+    if (e.code === 'KeyR' && !e.repeat) setRun(!running);
     if (e.code === 'Equal' || e.code === 'NumpadAdd') view.zoom(0.85);
     if (e.code === 'Minus' || e.code === 'NumpadSubtract') view.zoom(1.18);
   });
@@ -370,6 +379,11 @@ function boot() {
     const end = (e) => { if (e.pointerId !== id) return; id = null; joy.set(0, 0); knob.style.transform = ''; };
     pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
   }
+
+  /* ---------- 奔跑（一鍵切換） ---------- */
+  const runBtn = $('run-btn');
+  function setRun(v) { running = v; runBtn.setAttribute('aria-pressed', String(v)); runBtn.querySelector('span').textContent = v ? '奔跑中' : '奔跑'; }
+  runBtn.addEventListener('click', () => { setRun(!running); canvas.focus?.(); });
 
   /* ---------- 鏡頭 ---------- */
   function reframe() {
@@ -443,11 +457,11 @@ function boot() {
   $('enter-btn').addEventListener('click', enterIsland);
   $('home-ai').addEventListener('click', () => { enterIsland(); openDrawer(); });
   $('home-btn').addEventListener('click', goHome);
-  const vbtn = $('voice-btn');
-  const paintVoice = () => { vbtn.setAttribute('aria-pressed', String(voice.on)); vbtn.querySelector('span').textContent = voice.on ? '語音導讀：開' : '語音導讀：關'; };
-  if (!voice.supported) vbtn.hidden = true;
-  vbtn.addEventListener('click', () => { voice.set(!voice.on); paintVoice(); });
-  paintVoice();
+  const mbtn = $('music-btn');
+  const paintMusic = () => { mbtn.setAttribute('aria-pressed', String(music.on)); mbtn.querySelector('span').textContent = music.on ? '音樂：開' : '音樂：關'; };
+  mbtn.addEventListener('click', (e) => { e.stopPropagation(); music.set(!music.on); paintMusic(); });
+  paintMusic();
+  music.start();
 
   /* ---------- 尺寸 ---------- */
   function resize() {
@@ -482,7 +496,8 @@ function boot() {
         const len = Math.min(1, mv.length());
         const F = view.forward(), R = view.right();
         const dx = R.x * mv.x + F.x * mv.y, dz = R.y * mv.x + F.y * mv.y;
-        const speed = (keys.has('Shift') ? 6.4 : 4.2) * len;
+        const speed = (running || keys.has('Shift') ? 10.5 : 6.6) * len;
+        explorer.stride = running || keys.has('Shift') ? 17 : 12.5;
         explorer.drive(dx, dz, speed * dt, dt, (x, z) => world.walkable(x, z));
         if ($('hint').classList.contains('is-on') && !navTarget) hint('');
       }

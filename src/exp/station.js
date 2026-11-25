@@ -46,13 +46,13 @@ export function mount(el, spot, ctx) {
         <div class="opts tk-opts">${task.options.map((o, i) => `<button type="button" class="opt" data-i="${i}"><b>${L[i]}</b><span>${esc(o.t)}</span></button>`).join('')}</div>
         <section class="tk-ai" hidden></section>
         <details class="tk-all" hidden><summary>看看每個選擇可能帶來的影響（作品解說）</summary><ul>${task.options.map((o, i) => `<li><b>${L[i]}</b>${esc(o.n)}</li>`).join('')}</ul></details>
-        <section class="tk-reflect" hidden>
-          <h3>換你說說看</h3>
+        <details class="tk-reflect" hidden>
+          <summary>加碼練習（選做）：換你說說看</summary>
           <p>${esc(task.reflect)}</p>
           <textarea class="tk-text" rows="3" maxlength="300" placeholder="寫下你的句子或做法……"></textarea>
           <button type="button" class="btn btn-primary btn-sm tk-send"><span class="ai-dot"></span>請 AI 給我回饋</button>
           <div class="tk-fb"></div>
-        </section>
+        </details>
       </section>
       <div class="exp-done tk-done" hidden></div>
     </div>`;

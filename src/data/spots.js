@@ -13,10 +13,10 @@ export const ZONES = [
 ];
 
 /** 世界尺度：地點之間的距離放大，建築維持真人比例 */
-export const S = 2.2;
+export const S = 1.15;
 
 // 四給街：四座亭子環繞蓮池
-export const GARDEN = { x: 16.5 * S, z: 2.5 * S, r: 9.5, ring: 6.0, pond: 3.8 };
+export const GARDEN = { x: 16.5 * S, z: 2.5 * S, r: 7.4, ring: 4.7, pond: 2.8 };
 const pav = (deg, id, place) => {
   const a = deg * Math.PI / 180;
   const x = GARDEN.x + Math.cos(a) * GARDEN.r, z = GARDEN.z + Math.sin(a) * GARDEN.r;

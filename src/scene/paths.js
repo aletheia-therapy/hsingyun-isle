@@ -48,7 +48,7 @@ export class PathGraph {
       this.#link(street.at(-1), gIds[Math.round(GRING.n * 0.95)], 'main');
     }
     // 三好村的村道
-    const village = this.#chain([[-29.5, 28], [-31.2, 20.6], [-35.4, 8], [-36.4, -2.4], [-33.2, -13.5], [-29.6, -19.8]], 'main');
+    const village = this.#chain([[-29.5 / 2.2 * S, 28 / 2.2 * S], [-31.2 / 2.2 * S, 20.6 / 2.2 * S], [-35.4 / 2.2 * S, 8 / 2.2 * S], [-36.4 / 2.2 * S, -2.4 / 2.2 * S], [-33.2 / 2.2 * S, -13.5 / 2.2 * S], [-29.6 / 2.2 * S, -19.8 / 2.2 * S]], 'main');
     this.#link(village[0], this.#nearest(this.ringIds, village[0]), 'main');
     this.#link(village.at(-1), this.#nearest(this.ringIds, village.at(-1)), 'main');
     this.#link(up[0], this.#nearest(this.ringIds, up[0]), 'small');

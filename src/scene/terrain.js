@@ -20,14 +20,14 @@ const G = (x, z, cx, cz, s) => Math.exp(-((x - cx) ** 2 + (z - cz) ** 2) / (s * 
 /** 中央主峰（願行台）＋北側緩丘（智慧之境）＋西側生命之路的小坡 */
 export function hillAt(x, z) {
   x /= S; z /= S;
-  return 6.2 * G(x, z, 0, -4, 5.2)
+  return 4.6 * G(x, z, 0, -4, 5.6)
     + 2.0 * G(x, z, -2.5, -21, 6.5)
     + 1.2 * G(x, z, 9.5, -18, 5)
     + 1.0 * G(x, z, -17, -2, 6)
-    + 5.5 * G(x, z, -14, -21, 4.2)      // 西北的峰巒（七層塔）
-    + 4.2 * G(x, z, 19, -16, 4.0)       // 東北的峰巒
-    + 3.0 * G(x, z, -24, 16, 3.6)       // 西南的小山
-    + 2.6 * G(x, z, 24, 18, 3.4);       // 東南的小山
+    + 4.2 * G(x, z, -14, -21, 4.4)      // 西北的峰巒（七層塔）
+    + 3.2 * G(x, z, 19, -16, 4.2)       // 東北的峰巒
+    + 2.2 * G(x, z, -24, 16, 3.8)       // 西南的小山
+    + 2.0 * G(x, z, 24, 18, 3.6);       // 東南的小山
 }
 
 /** 林間小溪：從西北山腳蜿蜒流向南方的海 */
@@ -36,13 +36,13 @@ export function streamAt(x, z) {
   if (z < -16 * S || z > 31 * S) return 0;
   const d = Math.abs(x - streamX(z));
   const fadeIn = ss(-16 * S, -11 * S, z);
-  return fadeIn * Math.max(0, 1 - d / 2.4);
+  return fadeIn * Math.max(0, 1 - d / 1.9);
 }
 
 /** 兩座池：善念實踐園中央的蓮池、人間佛教殿西側的放生池（水面 y = 0） */
 export const PONDS = [
   { x: GARDEN.x, z: GARDEN.z, s: GARDEN.pond, depth: 1.8 },
-  { x: -11.5 * S, z: -14.5 * S, s: 4.2, depth: 1.8 },
+  { x: -11.5 * S, z: -14.5 * S, s: 3.0, depth: 1.8 },
 ];
 export function pondAt(x, z) {
   let p = 0;
