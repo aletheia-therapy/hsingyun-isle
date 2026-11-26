@@ -14,7 +14,7 @@ export const FAR = 28;                 // 走路時的距離（公尺）
 export const ZOOM_MAX = 34;            // 手動最遠可以拉到
 export const TILT = Math.PI / 4;       // 45°
 const LOOK_AHEAD = 2.4;                // 畫面中心放在人物前方幾公尺
-const TURN_MAX = 0.75;                 // 自動轉向最快每秒幾弧度（約 43 度）
+const TURN_MAX = 0.6;                  // 自動轉向最快每秒幾弧度（約 34 度）
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export class TPCamera {
@@ -38,7 +38,7 @@ export class TPCamera {
     this._f = new THREE.Vector2(); this._r = new THREE.Vector2(); this._ov = new THREE.Vector3(0, 0, -10);
   }
 
-  orbit(dx, dy) { this.yawT -= dx * 0.0065; this.pitchT = THREE.MathUtils.clamp(this.pitchT + dy * 0.004, 0.08, 1.2); this.hold = 1.5; this.omega = 0; this.manualN++; }
+  orbit(dx, dy) { this.yawT -= dx * 0.005; this.pitchT = THREE.MathUtils.clamp(this.pitchT + dy * 0.0032, 0.08, 1.2); this.hold = 1.5; this.omega = 0; this.manualN++; }
   zoom(f) { this.distT = THREE.MathUtils.clamp(this.distT * f, 3.5, ZOOM_MAX); this.hold = 1.5; }
   turn(a) { this.yawT += a; this.hold = 1.5; this.omega = 0; this.manualN++; }
   follow(x, y, z) { this.goal.set(x, y + 1.5, z); }
@@ -72,8 +72,9 @@ export class TPCamera {
     let want = 0;
     if (moving && this.hold <= 0 && this.moveT > 0.15) {
       const e = wrap(facing + Math.PI - this.yawT), a = Math.abs(e);
-      const fall = a < 1.75 ? 1 : a > 2.6 ? 0 : 1 - (a - 1.75) / 0.85;      // 100～150 度之間逐漸不轉（往回走時不翻轉）
-      if (a > 0.04) want = Math.sign(e) * Math.min(TURN_MAX, 1.5 * a) * fall;
+      // 往前走時鏡頭轉到身後；往旁邊走時只慢慢轉（不會一按左右就繞圈）；100～150 度之間逐漸不轉（往回走時不翻轉）
+      const fall = a < 1.1 ? 1 : a < 1.75 ? 1 - 0.6 * (a - 1.1) / 0.65 : a > 2.6 ? 0 : 0.4 * (1 - (a - 1.75) / 0.85);
+      if (a > 0.04) want = Math.sign(e) * Math.min(TURN_MAX, 1.3 * a) * fall;
       this.pitchT += (TILT - this.pitchT) * (1 - Math.exp(-1.2 * dt));
       this.distT += (FAR - this.distT) * (1 - Math.exp(-1.0 * dt));
     }

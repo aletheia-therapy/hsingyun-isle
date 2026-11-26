@@ -55,7 +55,7 @@ export class Explorer {
       }
     }
     if (moved) {
-      this.facing = dampAngle(this.facing, Math.atan2(mx, mz), 12, dt);
+      this.facing = dampAngle(this.facing, Math.atan2(mx, mz), 8, dt);          // 轉身平順一點，不會一碰就轉過去
       const d = Math.hypot(this.pos.x - x0, this.pos.y - z0);
       this.speedNow = d / Math.max(dt, 1e-4);
       this.step += d * Math.PI / (STEP_MIN + (STEP_MAX - STEP_MIN) * this.gait);

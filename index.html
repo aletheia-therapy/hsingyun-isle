@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>星雲之島：AI 人間佛教探索與實踐平台</title>
+<title>三好四給島：AI 沉浸式互動探索與實踐平台</title>
 <meta name="description" content="走進星雲大師的智慧，讓佛法在生活中實踐。一座可以探索、學習、與 AI 對話，並把三好四給帶回生活的數位島嶼。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,16 +20,16 @@
 </head>
 <body>
 <div id="app">
-  <canvas id="scene" tabindex="0" aria-label="星雲之島：東方山水小島的 3D 場景。用 WASD 或方向鍵走路，靠近島民按 Enter 對話。"></canvas>
+  <canvas id="scene" tabindex="0" aria-label="三好四給島：東方山水小島的 3D 場景。用 WASD 或方向鍵走路，靠近島民按 Enter 對話。"></canvas>
   <div id="pins" class="pins" aria-hidden="true"></div>
   <div id="pops" class="pops" aria-hidden="true"></div>
 
   <!-- ============ 首頁 ============ -->
   <section id="home" class="home" aria-labelledby="home-title">
     <div class="home-inner">
-      <p class="home-eyebrow">FO GUANG WISDOM ISLAND</p>
-      <h1 id="home-title" class="home-title">星雲之島</h1>
-      <p class="home-sub">三好四給・AI 互動實踐島</p>
+      <p class="home-eyebrow">SAN HAO SI GEI ISLAND</p>
+      <h1 id="home-title" class="home-title">三好四給島</h1>
+      <p class="home-sub">AI 沉浸式互動探索與實踐平台</p>
       <p class="home-lede">這是一座練習「三好四給」的島。<br>島上有七位遇到困難的島民，你要走過去<b>看</b>看發生什麼事、<b>聽</b>聽他們說話、<b>動手</b>幫忙，再選一選：回到生活裡，你會怎麼做？<br>每幫一位，就學會一種好的做法；最後登上山頂，許一個願。</p>
       <ol class="home-how" aria-label="怎麼玩">
         <li><b>1</b><span>看畫面上方的<br>「目前目標」</span></li>
@@ -59,7 +59,7 @@
   <!-- ============ 島上介面 ============ -->
   <header class="brand">
     <button type="button" id="home-btn" class="brand-home" aria-label="返回首頁">
-      <span class="brand-title">星雲之島</span>
+      <span class="brand-title">三好四給島</span>
       <span class="brand-sub">返回首頁</span>
     </button>
   </header>
@@ -87,6 +87,7 @@
   <div id="hint" class="hint" role="status"></div>
   <div id="mind" class="mind" hidden></div>
   <div id="mind-vig" class="mind-vig" aria-hidden="true"></div>
+  <div id="envy-fx" class="envy-fx" aria-hidden="true"></div>
   <button type="button" id="prompt" class="prompt" hidden></button>
   <div id="joystick" class="joystick" hidden aria-hidden="true"><i></i></div>
   <button type="button" id="music-btn" class="voice-btn music-btn" aria-pressed="true"><span>音樂：開</span></button>
@@ -125,22 +126,24 @@
       </ol>
       <p class="intro-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵走路，鏡頭會自動轉到你身後・拖曳畫面可以轉視角</p>
       <p class="intro-keys intro-touch">左下角搖桿走路，鏡頭會自動轉到你身後・拖曳畫面可以轉視角</p>
-      <p class="intro-mind"><b>心魔試煉</b>完成第一站後，島上的自私鬼、懈怠鬼會追你；撿起路上發光的善念光球，就能把它們感化成小精靈。</p>
+      <p class="intro-mind"><b>四大心魔</b>完成第一站後，島上會出現自私鬼、懈怠鬼、貪心鬼、嫉妒鬼，各有不同的化解方法；四隻都感化，就能開啟「光明之境」。</p>
       <button type="button" class="btn btn-primary btn-lg intro-go">知道了，出發！</button>
     </div>
   </div>
-  <!-- 心魔試煉：第一次出現時的說明 -->
+  <!-- 四大心魔：第一次出現時的說明 -->
   <div id="mind-intro" class="intro mind-intro" hidden>
     <div class="intro-box" role="dialog" aria-modal="true" aria-labelledby="mind-title">
       <p class="intro-eyebrow">新的試煉</p>
-      <h2 id="mind-title">心魔試煉</h2>
-      <p class="intro-lede">走在行善的路上，心裡的習氣也會跑出來。島上有兩隻心魔在遊蕩：</p>
+      <h2 id="mind-title">四大心魔</h2>
+      <p class="intro-lede">走在行善的路上，心裡的習氣也會跑出來。島上有四隻心魔，每一隻的樣子、行為和化解的方法都不一樣：</p>
       <ul class="mi-list">
-        <li><i class="mi-ic is-selfish" aria-hidden="true"></i><div><b>自私鬼</b><span>只想到自己。發現你就會追上來；被它追上，福德會減少。</span></div></li>
-        <li><i class="mi-ic is-lazy" aria-hidden="true"></i><div><b>懈怠鬼</b><span>讓人提不起勁。靠近它，腳步會越來越沉重；被它抓住，智慧會減少，還會懶洋洋好幾秒。</span></div></li>
-        <li><i class="mi-ic is-orb" aria-hidden="true"></i><div><b>善念光球</b><span>路上發光的小蓮花。撿起來，善念之光會守護你 15 秒，心魔會怕得躲開；這時追上去碰到它，就能把它感化成友善的小精靈。</span></div></li>
+        <li><i class="mi-ic is-selfish" aria-hidden="true"></i><div><b>自私鬼</b><span>只想到自己，發現你就主動追上來；被追上，福德會減少。</span></div></li>
+        <li><i class="mi-ic is-lazy" aria-hidden="true"></i><div><b>懈怠鬼</b><span>慢慢跟著你，靠近時腳步越來越沉重；被抓住，智慧減少、懶洋洋好幾秒。</span></div></li>
+        <li><i class="mi-ic is-greed" aria-hidden="true"></i><div><b>貪心鬼</b><span>到處搶吃善念光球，你撿到的光越多越容易被它盯上；追上你會搶走光和福德。它伸手要光的時候，主動<b>布施</b>給它，它就知足了。</span></div></li>
+        <li><i class="mi-ic is-envy" aria-hidden="true"></i><div><b>嫉妒鬼</b><span>平常躲著，冷不防瞬移到你身邊，讓畫面一陣干擾、腳步變慢。走近它，說一句<b>隨喜</b>的話，就能轉化它。</span></div></li>
+        <li><i class="mi-ic is-orb" aria-hidden="true"></i><div><b>善念光球</b><span>路上發光的小蓮花。撿起來，善念之光會守護你 15 秒：自私鬼、懈怠鬼怕光會躲開，追上去碰到它就能感化；嫉妒鬼也會被光趕走。</span></div></li>
       </ul>
-      <p class="mi-tip">遇到心魔，可以繞開它；站點前和島民身邊是安全的。修行不是消滅煩惱，而是看見它、轉化它。</p>
+      <p class="mi-tip">站點前和島民身邊是安全的。四隻都感化之後，會開啟隱藏成就「光明之境」。修行不是消滅煩惱，而是看見它、轉化它。</p>
       <button type="button" class="btn btn-primary btn-lg intro-go">知道了，繼續旅程</button>
     </div>
   </div>

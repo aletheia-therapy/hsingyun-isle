@@ -1,5 +1,5 @@
 /**
- * 星雲之島 AI 後端（Vercel Serverless Function）
+ * 三好四給島 AI 後端（Vercel Serverless Function）
  * POST /api/ai  { kind: 'chat'|'task'|'reflect'|'vow', ... }
  *
  * 環境變數：

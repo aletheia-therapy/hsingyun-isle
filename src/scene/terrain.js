@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { SPOTS, GARDEN, S, GATE } from '../data/spots.js';
 
 /**
- * 星雲之島地形。heightAt(x, z) 是全島唯一的地面高度來源：地形網格、步道、建築與旅人都用它。
+ * 三好四給島地形。heightAt(x, z) 是全島唯一的地面高度來源：地形網格、步道、建築與旅人都用它。
  * 座標：1 單位 = 1 公尺；-z 為北；山頂願行台在 (0, -4)。
  * 島形沿用前作已驗證的海岸線參數（水面著色器使用同一組參數）。
  */

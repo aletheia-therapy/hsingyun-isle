@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mat, glowMaterial, lantern } from './props.js';
+import { ACTS, setPose, unPose } from './acts.js';
 
 /**
  * 島民與旅人：寫實比例（約 1.7 公尺）的人物。每個身體部位把衣服、皮膚、頭髮合併成一個網格（頂點色），
@@ -53,7 +54,7 @@ export function humanFigure({ top = '#4f8a83', pants = '#3f4a5c', skin = '#d8a98
     hip.userData.knee = knee;
     return hip;
   });
-  const torso = new THREE.Group(); torso.position.y = 0.9; torso.rotation.x = stoop; body.add(torso);
+  const torso = new THREE.Group(); torso.position.y = 0.9; torso.rotation.x = stoop; torso.userData.stoop = stoop; body.add(torso);
   const topDk = shade(top, 0.78);
   torso.add(part([
     [new THREE.CylinderGeometry(0.15, 0.142, 0.18, 18), pants, T(0, 0.02, 0, 0, 0, 0, 1, 1, 0.74)],
@@ -152,11 +153,17 @@ const LOOKS = {
   confidence: { look: 'student', top: '#5a8f82', pants: '#3b4658', skin: '#d9ab86', hairStyle: 'long', extras: { torso: backpack('#7a6a58') } },
   joy: { look: 'elder', top: '#c99a3c', pants: '#5a4f44', skin: '#cf9f78', hairStyle: 'bun', longTop: true,
     extras: { torso: [[new THREE.BoxGeometry(0.27, 0.42, 0.012), '#f1ebe0', T(0, 0.12, 0.125, 0.05)], [new THREE.BoxGeometry(0.2, 0.15, 0.012), '#f1ebe0', T(0, 0.38, 0.13)]] } },
-  hope: { look: 'elder', top: '#6f93b8', pants: '#5a5550', skin: '#c99a74', hairStyle: 'grey', stoop: 0.1, longSleeve: true,
-    extras: { right: [[new THREE.CylinderGeometry(0.012, 0.012, 0.92, 8), '#5a3e28', T(0, -0.62, 0.06, 0.06)], [new THREE.TorusGeometry(0.035, 0.011, 6, 12, Math.PI), '#5a3e28', T(0, -0.17, 0.035, 0, Math.PI / 2)]] } },
+  hope: { look: 'elder', top: '#6f93b8', pants: '#5a5550', skin: '#c99a74', hairStyle: 'grey', stoop: 0.1, longSleeve: true },
   ease: { look: 'student', top: '#7f9d5c', pants: '#3f4a5c', skin: '#d6a47e', hairStyle: 'long',
     extras: { torso: backpack('#8a5a4a'), left: [[new THREE.BoxGeometry(0.16, 0.012, 0.12), '#efe6cf', T(0.02, -0.3, 0.07, 0.6)]] } },
+  /** 島上的村民（沒有任務）：海邊釣魚的漁夫戴著斗笠、砍柴的村民綁著頭巾 */
+  fisher: { look: 'elder', top: '#5d7a8c', pants: '#4a4238', skin: '#c08a60', hairStyle: 'short', height: 0.98, longSleeve: true,
+    extras: { head: [[new THREE.ConeGeometry(0.3, 0.16, 20, 1, true), '#c9a45a', T(0, 0.15, 0)], [new THREE.CylinderGeometry(0.3, 0.3, 0.01, 20), '#b08d48', T(0, 0.075, 0)]] } },
+  woodcutter: { look: 'student', top: '#8a5a3c', pants: '#3e3a34', skin: '#c99068', hairStyle: 'short', height: 1.02,
+    extras: { head: [[new THREE.TorusGeometry(0.108, 0.018, 6, 20), '#e8e2d4', T(0, 0.04, 0, Math.PI / 2)]] } },
 };
+/** 每一位島民在做的事（見 acts.js） */
+const ACT_OF = { origin: 'sweep', deed: 'pick', speech: 'phone', heart: 'meditate', confidence: 'sketch', hope: 'lantern', joy: 'cook', ease: 'lost', fisher: 'fish', woodcutter: 'chop', crew0: 'crossArms', crew1: 'chinRest', crew2: 'pockets' };
 
 /** 島民（依編號套用穿著與隨身物） */
 export function villager(look = 'student', color = '#5f9a8b', name = '', id = '') {
@@ -185,8 +192,13 @@ export function villager(look = 'student', color = '#5f9a8b', name = '', id = ''
   }
   let mood = 'sad', moving = false, clock = Math.random() * 10, phase = 0, look_ = 0, stepped = 0;
   const watch = new THREE.Vector2(9999, 9999);
+  const act = ACTS[ACT_OF[id]] || null, actState = act ? act.build(f, group) : null;
+  const ctx = { near: 9999, f, group };
   const api = {
     group,
+    act: ACT_OF[id] || null,
+    /** 名牌要放多高（坐著、蹲著的人比較低） */
+    get tagH() { return act ? act.tagH(mood) : 2.12 * f.root.scale.y; },
     setMood(m) { mood = m; if (basket) { const up = m === 'happy'; basket.rotation.z = up ? 0 : 1.35; basket.position.y = up ? 0 : 0.17; basket.userData.fruits.visible = up; } },
     setBadge() {},
     set moving(v) { moving = v; },
@@ -201,11 +213,22 @@ export function villager(look = 'student', color = '#5f9a8b', name = '', id = ''
       const g = group.position, d = Math.hypot(watch.x - g.x, watch.y - g.z);
       let target = 0;
       if (d < 7 && d > 0.3) {
-        let a = Math.atan2(watch.x - g.x, watch.y - g.z) - group.rotation.y;
+        let a = Math.atan2(watch.x - g.x, watch.y - g.z) - group.rotation.y - f.root.rotation.y;
         a = Math.atan2(Math.sin(a), Math.cos(a));
         target = THREE.MathUtils.clamp(a, -1.0, 1.0);
       }
       look_ += (target - look_) * Math.min(1, dt * 4);
+      if (act && !moving) {
+        // 做自己的事；旅人走近時轉頭看他
+        ctx.near = d;
+        const p = act.pose(clock, mood, actState, ctx);
+        setPose(f, p, Math.min(1, dt * 5));
+        const hy = d < 7 && d > 0.3 ? look_ : (p.hy ?? 0);
+        f.head.rotation.y += (hy - f.head.rotation.y) * Math.min(1, dt * 4);
+        f.torso.scale.y = 1 + Math.sin(clock * 1.7) * 0.006;
+        return;
+      }
+      if (act) unPose(f, Math.min(1, dt * 8));
       animateFigure(f, { walking: moving, phase, amp, mood, t: clock, look: look_ });
     },
   };
@@ -395,18 +418,19 @@ function flowerPot() {
 
 /** 三好村的組員：站在村子裡生悶氣，走近時會轉向你；說過話後會開心地揮手 */
 function questPerson(p, i) {
-  const v = villager({ ...p.look, height: [1.0, 0.97, 1.03][i % 3] }, '#888', p.name, '');
-  const g = v.group;
+  const v = villager({ ...p.look, height: [1.0, 0.97, 1.03][i % 3] }, '#888', p.name, `crew${i % 3}`);
+  const g = v.group, seated = v.act === 'chinRest';
   let st = 'idle', wx = 9999, wz = 9999;
   return {
     group: g, kind: 'person', talk: { ...p, kind: 'person' },
+    get tagH() { return v.tagH; },
     get done() { return st !== 'idle'; },
     collect() { if (st === 'idle') { st = 'talked'; v.setMood('happy'); } },
     get talkedTo() { return st !== 'idle'; },
     watch(x, z) { wx = x; wz = z; v.watch(x, z); },
     update(dt) {
       const d = Math.hypot(wx - g.position.x, wz - g.position.z);
-      if (d < 5 && d > 0.4) {
+      if (d < 5 && d > 0.4 && !seated) {
         let a = Math.atan2(wx - g.position.x, wz - g.position.z) - g.rotation.y;
         a = Math.atan2(Math.sin(a), Math.cos(a));
         g.rotation.y += a * Math.min(1, dt * 2.5);

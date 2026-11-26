@@ -42,7 +42,7 @@ export function mount(el, spot, ctx) {
         <button type="button" class="btn btn-primary vw-make">產生我的願行卡</button>
         <div class="vw-card" hidden>
           <img class="vw-img" alt="我的願行卡">
-          <div class="vw-actions"><a class="btn btn-primary btn-sm vw-dl" download="星雲之島-願行卡.png">下載願行卡</a><button type="button" class="btn btn-ghost btn-sm vw-share" hidden>分享</button></div>
+          <div class="vw-actions"><a class="btn btn-primary btn-sm vw-dl" download="三好四給島-願行卡.png">下載願行卡</a><button type="button" class="btn btn-ghost btn-sm vw-share" hidden>分享</button></div>
           <p class="exp-hint">願行卡只在你的瀏覽器裡產生，不會上傳。</p>
         </div>
       </section>
@@ -107,9 +107,9 @@ export function mount(el, spot, ctx) {
       const use = window.claude?.use;
       if (typeof use !== 'function') return;
       ev.preventDefault();
-      try { const dls = await use('downloads'); if (dls) await dls.save({ filename: '星雲之島-願行卡.png', data: blob }); } catch { /* 使用者取消 */ }
+      try { const dls = await use('downloads'); if (dls) await dls.save({ filename: '三好四給島-願行卡.png', data: blob }); } catch { /* 使用者取消 */ }
     };
-    const file = new File([blob], '星雲之島-願行卡.png', { type: 'image/png' });
+    const file = new File([blob], '三好四給島-願行卡.png', { type: 'image/png' });
     if (navigator.canShare?.({ files: [file] })) {
       share.hidden = false;
       share.onclick = () => { try { navigator.share({ files: [file], title: '我的願行卡', text }).catch(() => {}); } catch { /* 不支援 */ } };

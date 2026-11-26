@@ -1,4 +1,4 @@
-/* ===== 星雲之島：東方人文美學（米白紙色、柔金、青綠） ===== */
+/* ===== 三好四給島：東方人文美學（米白紙色、柔金、青綠） ===== */
 :root {
   --paper: #fbf7ee;
   --paper2: #f4ecdb;
@@ -654,7 +654,7 @@ body.talk-open .prompt, body.talk-open .hint, body.talk-open .joystick { display
 
 /* ===== 終點：黃昏的煙火與祝福字幕 ===== */
 body.finale .objective, body.finale .places, body.finale .pins, body.finale .prompt, body.finale .hint, body.finale .joystick,
-body.finale .ai-fab, body.finale .help-btn, body.finale .brand, body.finale .discover, body.finale .mind, body.finale .mind-vig, body.finale .mind-note { opacity: 0 !important; pointer-events: none !important; transition: opacity .8s; }
+body.finale .ai-fab, body.finale .help-btn, body.finale .brand, body.finale .discover, body.finale .mind, body.finale .mind-vig, body.finale .mind-note, body.finale .envy-fx { opacity: 0 !important; pointer-events: none !important; transition: opacity .8s; }
 .finale { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; display: flex; justify-content: center; padding: 0 20px 4.5vh; pointer-events: none;
   background: linear-gradient(0deg, rgba(10, 12, 28, .55) 0%, rgba(10, 12, 28, .25) 60%, rgba(10, 12, 28, 0) 100%); }
 .fin-box { text-align: center; color: #fff; max-width: 760px; pointer-events: auto; }
@@ -676,8 +676,11 @@ body.finale .ai-fab, body.finale .help-btn, body.finale .brand, body.finale .dis
 .trial[hidden] { display: none !important; }
 .trial b { font-family: var(--serif); color: #4a3566; white-space: nowrap; }
 .trial span { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
-.tr-g { font-style: normal; font-size: 12px; line-height: 1.7; padding: 0 8px; border-radius: 999px; background: #5b4a78; color: #fff; white-space: nowrap; }
-.tr-g.is-ok { background: #f0cf7a; color: #5a3d0c; font-weight: 700; }
+.trial small { color: #6a5a84; font-size: 12px; white-space: nowrap; }
+.tr-dots { display: flex; gap: 5px; }
+.tr-d { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, .15); }
+.tr-selfish { background: #45345a; } .tr-lazy { background: #66718a; } .tr-greed { background: #7a6c2c; } .tr-envy { background: #2f5e50; }
+.tr-d.is-ok { background: radial-gradient(circle, #fff6d8 0 35%, #f0cf7a 70%); box-shadow: 0 0 6px rgba(240, 207, 122, .9); }
 
 /* 狀態提示：畫面下方（手機在右下，避開搖桿） */
 .mind { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 9; display: flex; flex-direction: column; align-items: center; padding: 6px 18px; border-radius: 14px; color: #fff; pointer-events: none; text-align: center; line-height: 1.45; box-shadow: 0 6px 20px rgba(0, 0, 0, .25); animation: mindIn .25s ease-out; max-width: min(520px, 70vw); }
@@ -687,11 +690,32 @@ body.finale .ai-fab, body.finale .help-btn, body.finale .brand, body.finale .dis
 .mind.is-selfish { background: rgba(58, 30, 78, .93); }
 .mind.is-lazy { background: rgba(72, 80, 98, .93); }
 .mind.is-light { background: rgba(255, 247, 226, .96); color: #6b4a12; box-shadow: 0 0 0 2px rgba(242, 194, 92, .7), 0 6px 20px rgba(0, 0, 0, .2); }
+.mind.is-greed { background: rgba(96, 78, 20, .94); }
+.mind.is-envy { background: rgba(30, 78, 62, .94); }
 @keyframes mindIn { from { opacity: 0; } }
 .mind-vig { position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0; }
 .mind-vig[data-c="selfish"] { background: radial-gradient(ellipse at 50% 55%, rgba(40, 12, 58, 0) 50%, rgba(40, 12, 58, .78) 100%); }
 .mind-vig[data-c="lazy"] { background: radial-gradient(ellipse at 50% 55%, rgba(62, 68, 84, 0) 48%, rgba(62, 68, 84, .78) 100%); }
 .mind-vig[data-c="light"] { background: radial-gradient(ellipse at 50% 55%, rgba(255, 214, 120, 0) 56%, rgba(255, 214, 120, .5) 100%); }
+.mind-vig[data-c="greed"] { background: radial-gradient(ellipse at 50% 55%, rgba(90, 70, 10, 0) 50%, rgba(90, 70, 10, .72) 100%); }
+.mind-vig[data-c="envy"] { background: radial-gradient(ellipse at 50% 55%, rgba(20, 70, 50, 0) 46%, rgba(20, 70, 50, .75) 100%); }
+/* 嫉妒鬼的干擾：畫面輕微抖動、出現掃描線，兩側被暗影遮住一部分 */
+.envy-fx { position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0;
+  background: radial-gradient(circle at 12% 34%, rgba(14, 40, 30, .82) 0 13%, rgba(14, 40, 30, 0) 30%), radial-gradient(circle at 88% 66%, rgba(14, 40, 30, .78) 0 12%, rgba(14, 40, 30, 0) 28%),
+    radial-gradient(circle at 70% 14%, rgba(14, 40, 30, .6) 0 8%, rgba(14, 40, 30, 0) 20%), repeating-linear-gradient(0deg, rgba(150, 255, 190, .07) 0 2px, rgba(0, 0, 0, 0) 2px 6px);
+  animation: envyJit .4s steps(2) infinite; }
+@keyframes envyJit { 0% { transform: translate(0, 0); } 50% { transform: translate(4px, -3px); } 100% { transform: translate(-3px, 2px); } }
+body:not(.on-island) .envy-fx, body.finale .envy-fx { display: none; }
+.tag-ghost[data-st="beg"], .tag-ghost[data-st="near"] { box-shadow: 0 0 0 2px #e0a84f, 0 4px 14px rgba(0, 0, 0, .3); }
+.tag-ghost[data-st="beg"] .tag-st, .tag-ghost[data-st="near"] .tag-st { background: #e0a84f; }
+.tag-ghost[data-st="beg"] .tag-st::before, .tag-ghost[data-st="near"] .tag-st::before { content: '!'; }
+.tag-ghost[data-st="eat"] .tag-st { background: #b89a3a; }
+.mi-ic.is-greed { background: radial-gradient(circle at 34% 40%, #ffe27a 0 9%, transparent 10%), radial-gradient(circle at 66% 40%, #ffe27a 0 9%, transparent 10%), radial-gradient(ellipse 26% 12% at 50% 66%, #2a1208 0 98%, transparent 100%), #7a6c2c; border-radius: 46% 46% 50% 50%; }
+.mi-ic.is-envy { background: radial-gradient(ellipse 13% 6% at 36% 44%, #b8ff8a 0 98%, transparent 100%), radial-gradient(ellipse 13% 6% at 64% 44%, #b8ff8a 0 98%, transparent 100%), #2f5e50; border-radius: 50% 50% 40% 40% / 60% 60% 40% 40%; }
+/* 隱藏成就：光明之境 */
+.lu-card.lu-light { background: radial-gradient(ellipse at 50% 0%, #fff6dc 0%, var(--paper) 70%); box-shadow: 0 0 0 3px rgba(240, 200, 110, .7), 0 0 60px rgba(255, 210, 120, .65), var(--shadow); max-width: min(460px, 92vw); }
+.lu-card.lu-light .lu-mark { background: radial-gradient(circle, #fff3c8 0 30%, #e8b84a 75%); color: #6b4a12; box-shadow: 0 0 24px rgba(255, 200, 90, .9); }
+.badge.is-light { box-shadow: 0 0 8px rgba(240, 190, 80, .9); }
 body:not(.on-island) .mind, body:not(.on-island) .mind-vig { display: none; }
 @media (max-width: 860px) {
   .mind { left: auto; right: 10px; bottom: 80px; transform: none; max-width: calc(100vw - 168px); padding: 5px 12px; align-items: flex-end; text-align: right; }

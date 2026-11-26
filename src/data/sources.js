@@ -136,4 +136,8 @@ export const SOURCES = {
     t: '杜保瑞〈與星雲大師《八大人覺經十講》的智慧對談〉（臺大佛學數位圖書館）',
     u: 'https://buddhism.lib.ntu.edu.tw/FULLTEXT/JR-MAG/mag576097.pdf',
   },
+  huayan40: {
+    t: '《大方廣佛華嚴經》卷第四十〈入不思議解脫境界普賢行願品〉（唐般若譯，CBETA T0293 電子佛典）',
+    u: 'https://deerpark.app/download/cbeta-2021Q1/pdf/T/T0293.pdf',
+  },
 };

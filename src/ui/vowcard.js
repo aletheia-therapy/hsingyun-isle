@@ -78,6 +78,6 @@ export async function drawVowCard({ text, name, done }) {
   x.fillStyle = '#6b5e48'; x.font = `500 24px ${SANS}`;
   x.fillText('做好事・說好話・存好心　｜　給人信心・給人歡喜・給人希望・給人方便', W / 2, 1230);
   x.fillStyle = '#9a8c70'; x.font = `400 20px ${SANS}`;
-  x.fillText('《星雲之島》AI 人間佛教探索與實踐平台', W / 2, 1265);
+  x.fillText('《三好四給島》AI 沉浸式互動探索與實踐平台', W / 2, 1265);
   return c.toDataURL('image/png');
 }

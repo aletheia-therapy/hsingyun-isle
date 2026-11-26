@@ -11,6 +11,21 @@ import { TASKS } from '../data/tasks.js';
 import { GATE, GARDEN, S } from '../data/spots.js';
 import { villager, ringMarker, questItem } from './npc.js';
 
+/**
+ * 島民做事的位置：du（往來訪者的方向）、dv（側邊）以光圈為準；turn 是面向再轉多少；
+ * inside：坐在亭子裡（亭子本地座標，yaw 是面向）；lake：面向心湖；tree：身後種一棵樹。
+ */
+const PLACE = {
+  origin: { du: -0.2, dv: 1.7, turn: 0.75 },
+  deed: { du: 0.4, dv: -1.7, turn: -1.0 },
+  speech: { du: -0.4, dv: 1.9, turn: -0.5 },
+  heart: { du: 0.7, dv: 2.3, lake: true, tree: true },
+  confidence: { inside: [0.62, 0.5], yaw: -1.25 },
+  hope: { inside: [-0.62, 0.5], yaw: 1.25 },
+  joy: { inside: [-0.5, 0.2], yaw: 0.55 },
+  ease: { du: 0.2, dv: -1.4, turn: 0.3 },
+};
+
 /** 陽光從東南方斜照（約 37 度仰角） */
 export const SUN_DIR = new THREE.Vector3(36, 30, 22).normalize();
 /** 天邊的薄霧色（輸出色彩空間），與天空地平線、遠山一致 */
@@ -83,6 +98,7 @@ export class World {
     this.boxes = [];        // 建築碰撞：{ inv: Matrix4, box: Box3 }（建築本地座標）
     this.circles = [];      // 樹幹、石頭、柱子：[x, z, r]
     this.npcs = new Map();
+    this.villagers = [];    // 沒有任務的村民（釣魚、劈柴）
     this.rings = new Map();
     this.items = new Map(); // taskId -> questItem[]
     this.canopy = [];
@@ -207,7 +223,7 @@ export class World {
     for (let z = STAIR.z1; z <= STAIR.z0 + 1; z += 1.2) this.reserved.push([STAIR.x, z, STAIR.hw + 1.6]);
     for (const sx of [-1, 1]) { const lx = STAIR.x + sx * (STAIR.hw + 0.9), lz = STAIR.z0 + 0.9; lantern(statics, lx, heightAt(lx, lz), lz, 1.1, true); this.circles.push([lx, lz, 0.32]); }
 
-    this.#people(spots);
+    this.#people(spots, statics);
     this.#scatter(statics, spots);
     bake(statics, scene, this.sprites);
     this.#contactShadows(contact);
@@ -226,6 +242,49 @@ export class World {
 
     this.peakTop = new THREE.Vector3(PEAK.x, heightAt(PEAK.x, PEAK.z), PEAK.z);
     this.islandPoints = this.#islandOutline();
+  }
+
+  /** 沒有任務的村民：碼頭西邊的海岸有人釣魚，三好村旁有人在劈柴 */
+  #villagers() {
+    const fronts = [...this.spots.values()].map((s) => s.front);
+    const items = TASKS.flatMap((t) => t.quest?.at || []);
+    const boxes = [...this.spots.values()].map((s) => s.bounds);
+    const clear = (x, z, r) => !fronts.some(([fx, fz]) => Math.hypot(fx - x, fz - z) < 6) && !items.some(([ix, iz]) => Math.hypot(ix - x, iz - z) < 3.5)
+      && !boxes.some((b) => x > b.min.x - r && x < b.max.x + r && z > b.min.z - r && z < b.max.z + r) && !this.circles.some(([cx, cz, cr]) => Math.hypot(cx - x, cz - z) < cr + r);
+    const place = (id, x, z, yaw) => {
+      const v = villager('student', '#888', '', id);
+      v.group.position.set(x, heightAt(x, z), z); v.group.rotation.y = yaw;
+      v.setMood('idle');
+      this.scene.add(v.group); this.villagers.push(v);
+      this.animated.push((t, dt) => v.update(dt));
+      this.reserved.push([x, z, 2.4]);
+      return v;
+    };
+    // 漁夫：海岸邊的礁石上，面向大海（往外 2.5 公尺就是海水，浮標才會在水面上）
+    for (let a = 1.8; a < 2.4; a += 0.015) {
+      const R = islandR(a), d = 0.955, x = Math.cos(a) * R * d, z = Math.sin(a) * R * d;
+      const ox = Math.cos(a) * (R * d + 2.6), oz = Math.sin(a) * (R * d + 2.6);
+      if (heightAt(ox, oz) > -0.05 || !clear(x, z, 1.2) || this.edge(x, z) < 1.2) continue;
+      place('fisher', x, z, Math.atan2(Math.cos(a), Math.sin(a)));
+      this.circles.push([x, z, 0.5]);
+      break;
+    }
+    // 砍柴的村民：三好村旁的空地，面向步道（劈柴的樣子從路上看得到）
+    let best = null, bd = Infinity;
+    for (let x = -31; x <= -19; x += 0.5) for (let z = -6; z <= 17; z += 0.5) {
+      if (islandD(x, z) > 0.8 || this.edge(x, z) < 2.2 || pondAt(x, z) > 0.05 || streamAt(x, z) > 0.02 || !clear(x, z, 1.6)) continue;
+      const h = heightAt(x, z), sl = Math.abs(heightAt(x + 0.8, z) - h) + Math.abs(heightAt(x, z + 0.8) - h);
+      if (sl > 0.25) continue;
+      const d = Math.hypot(x + 23.5, z - 4.5);
+      if (d < bd) { bd = d; best = [x, z]; }
+    }
+    if (best) {
+      const [x, z] = best, n = this.graph.nodes[this.graph.nearestNode(x, z)];
+      const yaw = Math.atan2(n.x - x, n.y - z);
+      place('woodcutter', x, z, yaw);
+      const fx = Math.sin(yaw), fz = Math.cos(yaw);
+      this.circles.push([x, z, 0.4], [x + fx * 0.62, z + fz * 0.62, 0.36], [x - fz * 0.6 + fx * 0.55, z + fx * 0.6 + fz * 0.55, 0.5]);
+    }
   }
 
   #scatter(g, spots) {
@@ -338,7 +397,7 @@ export class World {
   }
 
   /** 島民、互動光圈、任務物件 */
-  #people(spots) {
+  #people(spots, statics) {
     for (const s of spots) {
       const task = TASKS.find((t) => t.id === s.task);
       const npcDef = task?.npc || s.npc;
@@ -351,11 +410,28 @@ export class World {
       if (npcDef) {
         const v = villager(npcDef.look, npcDef.color, npcDef.name, task?.id || s.id);
         const face = Math.atan2(fx - s.at[0], fz - s.at[1]);
-        // 島民站在光圈後側，面向來訪的人
-        const nx = fx - Math.sin(face) * 0.55, nz = fz - Math.cos(face) * 0.55;
-        v.group.position.set(nx, heightAt(nx, nz), nz);
-        v.group.rotation.y = face;
-        v.home = new THREE.Vector2(nx, nz); v.face = face;
+        // 島民在光圈旁做自己的事（亭子裡的人坐在亭內）；沒有設定的站在光圈後側，面向來訪的人
+        const P = PLACE[s.id];
+        let nx = fx - Math.sin(face) * 0.55, nz = fz - Math.cos(face) * 0.55, ny, yaw = face;
+        if (P?.inside) {
+          const k = 1.22, [lx, lz] = P.inside, r = s.rot || 0;
+          nx = s.at[0] + (lx * Math.cos(r) + lz * Math.sin(r)) * k; nz = s.at[1] + (-lx * Math.sin(r) + lz * Math.cos(r)) * k;
+          ny = heightAt(s.at[0], s.at[1]) - 0.04 + 0.28 * k;
+          yaw = r + P.yaw;
+        } else if (P) {
+          nx = fx + Math.sin(face) * P.du + Math.cos(face) * P.dv; nz = fz + Math.cos(face) * P.du - Math.sin(face) * P.dv;
+          yaw = P.lake ? Math.atan2(PONDS[1].x - nx, PONDS[1].z - nz) : face + (P.turn || 0);
+        }
+        v.group.position.set(nx, ny ?? heightAt(nx, nz), nz);
+        v.group.rotation.y = yaw;
+        v.home = new THREE.Vector2(nx, nz); v.face = yaw;
+        if (P && !P.inside) this.reserved.push([nx, nz, 1.5]);
+        // 小雨靜坐的那棵樹
+        if (P?.tree) {
+          const tx = nx - Math.sin(yaw) * 1.15, tz = nz - Math.cos(yaw) * 1.15;
+          const tr = broadleaf(statics, tx, heightAt(tx, tz), tz, 1.0, 29);
+          this.circles.push(tr.trunk); this.canopy.push(tr.crown); this.reserved.push([tx, tz, 2.2]);
+        }
         if (s.id === 'origin') v.setMood('idle');
         this.scene.add(v.group); this.npcs.set(s.id, v);
         this.animated.push((t, dt) => v.update(dt));
@@ -381,6 +457,7 @@ export class World {
         this.items.set(task.id, list);
       }
     }
+    this.#villagers();
   }
 
   /** 可以走的地方：島上、不在池裡、不撞到建築、樹幹與石頭 */
@@ -638,12 +715,22 @@ export class World {
     this.hemi.groundColor.copy(this.day.ground).lerp(_dGround, k);
     this.sun.color.copy(this.day.sun).lerp(_dSun, k);
     this.sun.intensity = this.day.si * (1 - 0.72 * k);
+    // 四大心魔還在的時候，島上蒙著一層淡淡的灰；四隻都感化後（光明之境），陽光轉為溫暖的金色
+    const gl = this.gloom || 0, lt = this.lightK || 0;
+    if (gl > 0.001) { this.scene.fog.color.lerp(_gFog, gl * 0.3); this.hemi.color.lerp(_gFog, gl * 0.22); this.sun.intensity *= 1 - 0.2 * gl; }
+    if (lt > 0.001) { this.sun.color.lerp(_lSun, lt * 0.35 * (1 - k)); this.sun.intensity *= 1 + 0.12 * lt * (1 - k); }
     this.water.setDusk(k);
     // 遠山、山腰的雲霧轉成暮色；石燈的光變得明顯
     for (const m of this.hillMats || []) m.color.setRGB(1, 1, 1).lerp(_dHill, k);
     this.mist.children.forEach((m) => m.material.color.setRGB(1, 1, 1).lerp(_dMist, k));
     if (this.sprites[0]) { const gm = this.sprites[0].material; gm.userData.op ??= gm.opacity; gm.opacity = gm.userData.op * (1 + 1.2 * k); }
     this.#applyFlash();
+  }
+  /** gloom：心魔帶來的灰暗（0～1）；light：光明之境（0～1） */
+  setGloom(gloom, light) {
+    if (Math.abs((this.gloom || 0) - gloom) < 0.002 && Math.abs((this.lightK || 0) - light) < 0.002) return;
+    this.gloom = gloom; this.lightK = light;
+    this.setDusk(this.dusk || 0);
   }
   flash(color, k) {
     this.flashK = Math.min(1.2, (this.flashK || 0) + k);
@@ -669,4 +756,5 @@ export class World {
 
 const _p = new THREE.Vector3(), _r = new THREE.Vector3(), _u = new THREE.Vector3(), _q = new THREE.Vector3(), _s = new THREE.Vector3();
 const _dFog = new THREE.Color('#2e3552'), _dSky = new THREE.Color('#7d86b8'), _dGround = new THREE.Color('#3b3448'), _dSun = new THREE.Color('#ff9a62');
+const _gFog = new THREE.Color('#9aa0a8'), _lSun = new THREE.Color('#ffd590');
 const _dHill = new THREE.Color('#2b2f4c'), _dMist = new THREE.Color('#5a5b7a');

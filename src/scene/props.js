@@ -4,7 +4,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TEX, triplanar, rand as xrand } from './textures.js';
 
 /**
- * 星雲之島的建築與植物。每個建造函式在原點、地面高度 0 建模，正面朝 +z。
+ * 三好四給島的建築與植物。每個建造函式在原點、地面高度 0 建模，正面朝 +z。
  * 東方寺院風格：石砌台基、朱紅木柱、米白牆面、起翹的曲面屋頂；松、竹、梅與山石。
  * 不描繪佛像、不使用任何寺院的實際標誌或特定建築的複製。
  */

@@ -14,7 +14,7 @@ import { GUIDE, ABOUT } from './ui/pages.js';
 import { LEVELS } from './data/games.js';
 import { Fireworks } from './scene/fireworks.js';
 import { sfx } from './ui/sfx.js';
-import { MindTrial, makeAura, GHOSTS } from './scene/ghosts.js';
+import { MindTrial, makeAura, makeMotes, GHOSTS } from './scene/ghosts.js';
 import { SOURCES } from './data/sources.js';
 import { MERIT } from './data/merit.js';
 
@@ -23,7 +23,7 @@ const narrow = () => matchMedia('(max-width: 860px)').matches;
 const touch = matchMedia('(pointer: coarse)').matches;
 const TALK_R = 2.4;
 /** 移動速度（公尺／秒，輕快小跑步）；帶路時島民跟得上 */
-const WALK = 5.0, FOLLOW = 5.6;
+const WALK = 4.3, FOLLOW = 5.0;
 /** 建議路線：沿著島走一圈（山門 → 三好村 → 四給街 → 講堂 → 影音堂 → 山頂），每一站都在上一站附近 */
 const ORDER = ['origin', 'deed', 'speech', 'heart', 'confidence', 'hope', 'joy', 'ease', 'lecture', 'media', 'vowterrace'];
 const NUM = '①②③④⑤⑥⑦⑧⑨⑩⑪';
@@ -75,7 +75,7 @@ function boot() {
   const watchers = [...world.items.values()].flat().filter((it) => it.watch);
 
   /* ---------- 狀態 ---------- */
-  let onIsland = false, here = null, nearId = null, nearItem = null, nearFinale = false, navTarget = null, stillT = 0, talking = null, speedNow = 0, finale = null, duskNow = 0;
+  let onIsland = false, here = null, nearId = null, nearItem = null, nearFinale = false, nearGhost = null, navTarget = null, stillT = 0, talking = null, speedNow = 0, finale = null, duskNow = 0;
   const lastDir = new THREE.Vector2(0, 1);
   const keys = new Set();
   const joy = new THREE.Vector2();
@@ -169,14 +169,18 @@ function boot() {
     for (const s of SPOTS) if (st.done.includes(s.id)) world.bloom(s.id, false);
     $('fu').textContent = String(state.fu);
     $('hui').textContent = String(state.hui);
-    $('badges').innerHTML = LEVELS.map((l) => { const ok = l.spots.every((x) => st.done.includes(x)); return `<span class="badge${ok ? ' is-on' : ''}" style="--bc:${l.color}" title="${l.badge}">${l.mark}</span>`; }).join('');
+    $('badges').innerHTML = LEVELS.map((l) => { const ok = l.spots.every((x) => st.done.includes(x)); return `<span class="badge${ok ? ' is-on' : ''}" style="--bc:${l.color}" title="${l.badge}">${l.mark}</span>`; }).join('')
+      + (st.ghosts?.light ? '<span class="badge is-on is-light" style="--bc:#d9a83a" title="隱藏成就：光明之境">光</span>' : '');
     const cur = LEVELS.find((l) => !l.spots.every((x) => st.done.includes(x)));
     $('level').innerHTML = cur ? `<b>${cur.name}</b><span>${cur.spots.filter((x) => st.done.includes(x)).length} / ${cur.spots.length}</span>` : '<b>全部過關！</b><span>島嶼已完全點亮</span>';
     for (const [id, tg] of tags) { const s = tagStatus(id); if (s !== tg.last) { tg.el.dataset.st = s; tg.last = s; } }
-    // 心魔試煉：完成第一站後出現
+    // 四大心魔：完成第一站後出現
     const tr = $('trial');
     tr.hidden = !st.done.includes('origin');
-    if (!tr.hidden) tr.innerHTML = `<b>心魔試煉</b><span>${Object.entries(GHOSTS).map(([id, g]) => (st.ghosts?.[id] ? `<i class="tr-g is-ok">✓ ${g.tamedName}</i>` : `<i class="tr-g">${g.name}</i>`)).join('')}</span>`;
+    if (!tr.hidden) {
+      const ids = Object.keys(GHOSTS), n = ids.filter((id) => st.ghosts?.[id]).length;
+      tr.innerHTML = `<b>四大心魔</b><span class="tr-dots">${ids.map((id) => `<i class="tr-d tr-${id}${st.ghosts?.[id] ? ' is-ok' : ''}" title="${st.ghosts?.[id] ? GHOSTS[id].tamedName : GHOSTS[id].name}"></i>`).join('')}</span><small>${n >= ids.length ? '✦ 光明之境' : `感化 ${n} / ${ids.length}`}</small>`;
+    }
   }
   /**
    * 福德、智慧增加（或減少）多少：從人物頭上冒出來、慢慢往上飄。
@@ -407,7 +411,7 @@ function boot() {
         <button type="button" class="icon-btn talk-x" aria-label="先離開">×</button>
         <p class="talk-who" id="talk-who"><b>${esc(d.name)}</b><small>${esc(fire ? '心火・三毒之一' : d.role || '')}</small></p>
         <p class="talk-line">${esc(fire ? d.line : `「${d.line}」`)}</p>
-        <p class="talk-ask">${fire ? '這把火，要用「戒、定、慧」哪一種方法熄滅？' : '你會怎麼回應？選一句能化解火氣的話。'}</p>
+        <p class="talk-ask">${esc(d.ask || (fire ? '這把火，要用「戒、定、慧」哪一種方法熄滅？' : '你會怎麼回應？選一句能化解火氣的話。'))}</p>
         <div class="talk-opts">${order.map((k, j) => `<button type="button" class="opt" data-k="${k}"><b>${j + 1}</b><span>${esc(d.options[k].t)}</span></button>`).join('')}</div>
         <div class="talk-why" aria-live="polite"></div>
       </div>`;
@@ -429,11 +433,12 @@ function boot() {
       return;
     }
     talkEl.querySelectorAll('.talk-opts .opt').forEach((x) => { x.disabled = true; x.classList.toggle('is-right', x === b); });
-    why.innerHTML = `<p class="mg-ok"><b>${fire ? `✦ ${esc(d.name)}熄滅了，化成一盞小蓮燈。` : `✦ ${esc(d.name)}的火氣消了。`}</b>${esc(o.why)}</p><button type="button" class="btn btn-primary talk-go">繼續</button>`;
+    why.innerHTML = `<p class="mg-ok"><b>${d.okText ? esc(d.okText) : fire ? `✦ ${esc(d.name)}熄滅了，化成一盞小蓮燈。` : `✦ ${esc(d.name)}的火氣消了。`}</b>${esc(o.why)}</p><button type="button" class="btn btn-primary talk-go">繼續</button>`;
     const go = why.querySelector('.talk-go');
     go.focus({ preventScroll: true });
     go.addEventListener('click', () => {
       const miss = talking?.miss || 0;
+      if (t.id === 'mind') { talking = null; closeTalk(); tameEnvy(); return; }      // 對嫉妒鬼說了隨喜的話
       closeTalk();
       const k = fire ? 'fire' : 'person';
       if (!gotItem(t, idx, MERIT.item[miss ? `${k}Retry` : k], fire ? `熄滅${d.name}` : '化解了火氣')) {
@@ -443,6 +448,7 @@ function boot() {
     });
   }
   function closeTalk() {
+    if (talking?.t.id === 'mind') trial.dismiss('envy');           // 沒說完就離開，嫉妒鬼又躲起來了
     talking = null;
     talkEl.hidden = true; talkEl.classList.remove('is-in');
     document.body.classList.remove('talk-open');
@@ -547,7 +553,7 @@ function boot() {
     const on = showWorld();
     for (const [id, tg] of tags) {
       const sp = world.spots.get(id), v = world.npcs.get(id);
-      if (v) tmp.set(v.group.position.x, v.group.position.y + 2.12 * (v.group.children[0].scale.y || 1), v.group.position.z);
+      if (v) tmp.set(v.group.position.x, v.group.position.y + v.tagH, v.group.position.z);
       else tmp.copy(sp.anchor);
       const dd = Math.hypot(tmp.x - explorer.pos.x, tmp.z - explorer.pos.y);
       const isT = id === ob.spot;
@@ -562,7 +568,7 @@ function boot() {
       let vis = on && aq === tg.t.id && it.group.visible && !it.done;
       let dd = 0;
       if (vis) {
-        tmp.set(gp.x, gp.y + tg.h, gp.z);
+        tmp.set(gp.x, gp.y + (it.tagH ?? tg.h), gp.z);
         dd = Math.hypot(gp.x - explorer.pos.x, gp.z - explorer.pos.y);
         tmp.project(view.camera);
         vis = onScreen() && dd < 40 && dd > 0.8;
@@ -573,16 +579,16 @@ function boot() {
     // 心魔與小精靈的名牌
     for (const tg of ghostTags) {
       const gh = tg.gh;
-      let vis = on && ghostShown, dd = 0;
+      let vis = on && ghostShown && trial.seen(gh), dd = 0;
       if (vis) { trial.tagPos(gh, tmp); dd = Math.hypot(gh.pos.x - explorer.pos.x, gh.pos.y - explorer.pos.y); tmp.project(view.camera); vis = onScreen() && dd < 32; }
       setStyle(tg, 'vis', vis ? 'visible' : 'hidden');
       if (!vis) continue;
       place(tg, false, dd);
-      const st = gh.tamed ? 'tamed' : gh.mode === 'chase' ? 'chase' : gh.mode === 'flee' ? 'flee' : 'roam';
+      const st = gh.tamed ? 'tamed' : gh.mode === 'chase' ? 'chase' : gh.mode === 'beg' ? 'beg' : gh.mode === 'near' ? 'near' : gh.mode === 'flee' ? 'flee' : gh.kind === 'greed' && gh.orb >= 0 ? 'eat' : 'roam';
       if (st !== tg.st) {
         tg.st = st; tg.el.dataset.st = st;
         tg.el.querySelector('b').textContent = gh.tamed ? gh.tamedName : gh.name;
-        tg.el.querySelector('small').textContent = { tamed: '已感化', chase: '追你中！', flee: '怕光・快追上它', roam: '遊蕩中' }[st];
+        tg.el.querySelector('small').textContent = { tamed: '已感化', chase: '追你中！', beg: '伸手要光', near: '干擾你！', flee: '怕光・快追上它', eat: '搶光球', roam: '遊蕩中' }[st];
       }
     }
     if (on && ob.target && guide.next) {
@@ -686,21 +692,22 @@ function boot() {
   /* ---------- 靠近互動：島民的站點，或任務中的組員與心火 ---------- */
   const promptEl = $('prompt');
   let nearKey = '';
-  function setNear(spotId, item, fin = false) {
-    nearItem = item; nearId = item ? null : spotId; nearFinale = !item && !spotId && fin;
-    const key = item ? `i:${item.task.id}:${item.i}` : spotId ? `s:${spotId}` : nearFinale ? 'finale' : '';
+  function setNear(spotId, item, fin = false, ghost = null) {
+    nearItem = item; nearId = item ? null : spotId; nearFinale = !item && !spotId && fin; nearGhost = !item && !spotId && !nearFinale ? ghost : null;
+    const key = item ? `i:${item.task.id}:${item.i}` : spotId ? `s:${spotId}` : nearFinale ? 'finale' : nearGhost ? `g:${nearGhost}` : '';
     if (key === nearKey) return;
     nearKey = key;
     if (!key) { promptEl.hidden = true; return; }
     let what;
     if (nearFinale) what = '再看一次 <b>煙火</b>';
+    else if (nearGhost) what = nearGhost === 'greed' ? '布施：把善念之光分給 <b>貪心鬼</b>' : '隨喜：對 <b>嫉妒鬼</b> 說一句讚美的話';
     else if (item) what = item.it.talk.kind === 'fire' ? `熄滅 <b>${esc(item.it.talk.name)}</b>` : `和 <b>${esc(item.it.talk.name)}</b> 說話`;
     else { const s = spotOf(spotId), t = taskOf(spotId); what = t ? `和 <b>${esc(t.npc.name)}</b> 說話` : s.npc ? `和 <b>${esc(s.npc.name)}</b> 說話` : `進入 <b>${esc(s.place)}</b>`; }
     promptEl.hidden = false;
     promptEl.innerHTML = `<kbd>${touch ? '點這裡' : 'Enter'}</kbd><span>${what}</span>`;
     obT = 1;
   }
-  const interact = () => { if (nearItem) openTalk(nearItem); else if (nearId) openSpot(nearId); else if (nearFinale) startFinale(); };
+  const interact = () => { if (nearItem) openTalk(nearItem); else if (nearId) openSpot(nearId); else if (nearFinale) startFinale(); else if (nearGhost === 'greed') giveLight(); else if (nearGhost === 'envy') openEnvyTalk(); };
   promptEl.addEventListener('click', interact);
   function nearestStation() {
     const p = explorer.pos;
@@ -800,11 +807,11 @@ function boot() {
     reframe();
   }
 
-  /* ---------- 心魔試煉：自私鬼、懈怠鬼與善念光球（完成第一站之後開始） ---------- */
+  /* ---------- 四大心魔：自私鬼、懈怠鬼、貪心鬼、嫉妒鬼與善念光球（完成第一站之後開始） ---------- */
   const NOGHOST = /[?&]noghost\b/.test(location.search), NOINTRO = /[?&]nointro\b/.test(location.search);      // 自動化測試用
   const trialOn = () => !NOGHOST && state.isDone('origin');
-  /** 心魔遊蕩的範圍 [x, z, 半徑]：自私鬼守在山腳的十字路口，懈怠鬼在東邊往四給街的路上 */
-  const HOMES = { selfish: [-4, 13, 7], lazy: [10, 7, 6.5] };
+  /** 心魔遊蕩的範圍 [x, z, 半徑]：自私鬼守在山腳的十字路口，懈怠鬼在東邊往四給街的路上，貪心鬼在西北邊 */
+  const HOMES = { selfish: [-4, 13, 7], lazy: [10, 7, 6.5], greed: [-6, -8, 8] };      // 貪心鬼在西北邊、心湖與影音堂之間；嫉妒鬼沒有固定的家
   const fronts = SPOTS.map((s) => world.spots.get(s.id).front);
   const allItems = [...world.items.values()].flat();
   /** 安全的地方：站點前（和島民說話的地方）、組員與心火旁、靜心的蒲團旁、上岸的碼頭。在這裡心魔不會追你 */
@@ -843,13 +850,19 @@ function boot() {
     return pick.map(([x, z]) => [x, ground(x, z), z]);
   }
   const trial = new MindTrial(world.scene, { homes: HOMES, orbs: orbSpots(), ground, safe: isSafe, blocked: (x, z) => offLimits(x, z) || isSafe(x, z), soft: offLimits });
-  const aura = makeAura(world.scene);
-  for (const id of Object.keys(GHOSTS)) if (state.get().ghosts?.[id]) trial.tame(id, true);
-  let shield = 0, ghostShown = null, flashK = 0, vigK = 0, mindLast = '';
+  const aura = makeAura(world.scene), motes = makeMotes(world.scene);
+  {
+    const gs = state.get().ghosts || {};
+    if (gs.envy && gs.envyAt) trial.placeEnvy(gs.envyAt[0], gs.envyAt[1]);
+    for (const id of Object.keys(GHOSTS)) if (gs[id]) trial.tame(id, true);
+  }
+  let shield = 0, ghostShown = null, flashK = 0, vigK = 0, envyFx = 0, mindLast = '', gloomNow = 0, lightNow = state.get().ghosts?.light ? 1 : 0;
   const lastWarn = {};
   const ghostTags = trial.ghosts.map((gh) => { const el = makeTag('#5b4a78', gh.name, '遊蕩中'); el.classList.add('tag-ghost'); return { el, gh, vis: 'hidden', st: '' }; });
+  /** 做過布施的好事（幫阿婆、謝謝阿姨），貪心鬼比較不貪；學會讚美別人（小安那一站），嫉妒鬼的干擾減半 */
+  const gentle = () => ({ greed: (state.isDone('deed') ? 1 : 0) + (state.isDone('joy') ? 1 : 0), envy: state.isDone('confidence') });
 
-  /** 第一次遇到：說明心魔試煉怎麼玩 */
+  /** 第一次遇到：說明四大心魔怎麼玩 */
   const mindIntro = $('mind-intro');
   function openMindIntro() {
     mindIntro.hidden = false;
@@ -865,17 +878,19 @@ function boot() {
   }
   mindIntro.querySelector('.intro-go').addEventListener('click', closeMindIntro);
 
-  /** 感化之後：畫面下方浮出的小卡，說明這份轉化背後的佛法（經文出自《佛說八大人覺經》） */
+  /** 感化之後：畫面下方浮出的小卡，說明這份轉化背後的佛法 */
   const noteEl = $('mind-note');
   let noteT = 0;
   const TAME = {
-    selfish: { line: '它放下緊抱的錢袋，開心地繞著你飛。願意分享、給人歡喜，自私就轉成了布施。', q: '菩薩佈施，等念怨親', at: '第六覺知' },
-    lazy: { line: '它睜開眼睛、伸了個懶腰。一次做好一件小小的好事，懈怠就轉成了精進。', q: '懈怠墜落；常行精進，破煩惱惡', at: '第四覺知' },
+    selfish: { line: '它放下緊抱的錢袋，開心地繞著你飛。願意分享、給人歡喜，自私就轉成了布施。', q: '菩薩佈施，等念怨親', src: 'badaren', book: '《佛說八大人覺經》', at: '第六覺知' },
+    lazy: { line: '它睜開眼睛、伸了個懶腰。一次做好一件小小的好事，懈怠就轉成了精進。', q: '懈怠墜落；常行精進，破煩惱惡', src: 'badaren', book: '《佛說八大人覺經》', at: '第四覺知' },
+    greed: { line: '你把身上的光分給了它，它放下搶來的光，肚子不再咕嚕咕嚕叫。願意布施、懂得知足，貪心就轉成了知足。', q: '心無厭足，唯得多求，增長罪惡；菩薩不爾，常念知足', src: 'badaren', book: '《佛說八大人覺經》', at: '第三覺知' },
+    envy: { line: '它不再斜眼盯著別人，開始為別人的好事拍手。看見別人好，真心替他高興，嫉妒就轉成了隨喜。', q: '隨喜功德', src: 'huayan40', book: '《華嚴經・普賢行願品》', at: '十大願的第五願' },
   };
   function tameNote(id) {
     const g = GHOSTS[id], d = TAME[id];
     noteEl.innerHTML = `<p class="mn-eyebrow">心念轉化</p><h3>${esc(g.name)}變成了「${esc(g.tamedName)}」</h3><p>${esc(d.line)}</p>
-      <blockquote>「${esc(d.q)}」<cite>——<a href="${SOURCES.badaren.u}" target="_blank" rel="noopener">《佛說八大人覺經》</a>${esc(d.at)}</cite></blockquote>
+      <blockquote>「${esc(d.q)}」<cite>——<a href="${SOURCES[d.src].u}" target="_blank" rel="noopener">${esc(d.book)}</a>${esc(d.at)}</cite></blockquote>
       <div class="mn-foot"><p class="mn-tip">修行不是消滅煩惱，而是看見它、轉化它。</p><button type="button" class="btn btn-quiet btn-sm mn-ok">知道了</button></div>`;
     clearTimeout(noteT);
     noteEl.hidden = false; noteEl.classList.remove('is-in'); void noteEl.offsetWidth; noteEl.classList.add('is-in');
@@ -884,42 +899,103 @@ function boot() {
   }
   function hideNote() { clearTimeout(noteT); noteEl.classList.remove('is-in'); noteT = setTimeout(() => { noteEl.hidden = true; }, 400); canvas.focus?.(); }
 
+  /** 布施：把身上的善念之光分給貪心鬼 */
+  function giveLight() {
+    if (shield <= 0 || trial.get('greed').tamed) return;
+    shield = 0;
+    trial.tame('greed');
+    onTrial({ type: 'tame', id: 'greed' });
+  }
+  /** 隨喜：對嫉妒鬼說一句讚美的話（用和組員說話一樣的對話框） */
+  const ENVY_TALK = {
+    kind: 'envy', name: '嫉妒鬼', role: '心魔・比較、嫉妒',
+    line: '哼，為什麼大家都在稱讚別人？我也很努力啊……看到別人比我好，我心裡就不舒服。',
+    ask: '你會怎麼對它說？選一句「隨喜」的話：為別人的好真心高興。',
+    okText: '✦ 嫉妒鬼的眼神變柔和了。',
+    options: [
+      { t: '看到別人做得好，我也替他高興；他的努力也讓我學到東西。', ok: true, why: '這就是「隨喜」：真心為別人的好事感到歡喜。嫉妒讓心越來越窄，隨喜讓心越來越寬。' },
+      { t: '他只是運氣好而已，沒什麼了不起。', ok: false, why: '貶低別人來安慰自己，嫉妒的火反而燒得更旺。' },
+      { t: '那我一定要比他更厲害，把他比下去！', ok: false, why: '一直和人比較，心就停不下來。把力氣放在自己能做到的事上，不必把別人比下去。' },
+    ],
+  };
+  function openEnvyTalk() {
+    const gh = trial.get('envy'); if (gh.tamed || gh.mode !== 'near') return;
+    trial.hold('envy', 4);
+    openTalk({ task: { id: 'mind', color: '#3f7a62' }, i: -1, it: { talk: ENVY_TALK } });
+  }
+  function tameEnvy() {
+    const gh = trial.get('envy');
+    state.setGhost({ envyAt: [+gh.pos.x.toFixed(2), +gh.pos.y.toFixed(2)] });
+    trial.tame('envy');
+    onTrial({ type: 'tame', id: 'envy' });
+  }
+
+  /** 光明之境：四大心魔都感化了。整座島轉為明亮的金色，飄滿光點 */
+  let lightToken = 0;
+  function brightRealm() {
+    const g = state.addMerit('light', MERIT.light);
+    state.setGhost({ light: true });
+    sfx.bless(); setTimeout(() => sfx.chime(), 500);
+    if (finale) return;
+    const box = $('levelup'), my = ++lightToken;
+    box.innerHTML = `<div class="lu-card lu-light"><span class="lu-mark">光</span><p class="lu-t">光明之境</p><h3>隱藏成就達成</h3><p>四大心魔都被你感化了，整座島亮了起來。<br>真正需要克服的，往往不是外面的鬼，而是自己的習氣。</p>${g ? `<p class="lu-gain"><span class="pop-f"><i>福德</i>+${g[0]}</span><span class="pop-w"><i>智慧</i>+${g[1]}</span></p>` : ''}<button type="button" class="btn btn-primary">繼續</button></div>`;
+    box.hidden = false;
+    const close = () => { if (my !== lightToken || box.hidden) return; box.hidden = true; gain(g, '光明之境'); };
+    box.querySelector('button').addEventListener('click', close);
+    setTimeout(close, 9000);
+    renderLists();
+  }
+
   function onTrial(e) {
     const gh = e.id ? trial.get(e.id) : null;
     if (e.type === 'orb') {
       shield = 15;
       sfx.chime();
       gain(state.addMerit(`orb:${e.i}`, MERIT.orb), '善念之光');
-      toast(trial.tamedCount < 2 ? '✦ 善念之光！15 秒內追上心魔，就能感化它' : '✦ 善念之光照亮了你');
+      const g = trial.get('greed');
+      toast(!g.tamed && g.mode === 'chase' ? '✦ 善念之光！小心，貪心鬼最愛搶光' : trial.tamedCount < 4 ? '✦ 善念之光！15 秒內追上心魔，就能感化它' : '✦ 善念之光照亮了你');
     } else if (e.type === 'warn') {
       sfx.warn();
-      if (t - (lastWarn[e.id] ?? -1e9) > 60) toast(`⚠ ${gh.name}發現你了！`);
+      if (t - (lastWarn[e.id] ?? -1e9) > 60) toast(e.id === 'greed' ? '⚠ 貪心鬼聞到光的味道，追過來了！' : `⚠ ${gh.name}發現你了！`);
       lastWarn[e.id] = t;
-    } else if (e.type === 'catch') {
+    } else if (e.type === 'appear') {
+      sfx.warn();
+      if (t - (lastWarn.envy ?? -1e9) > 90) toast('⚠ 嫉妒鬼冒出來了！');
+      lastWarn.envy = t;
+    } else if (e.type === 'beg') {
+      hint(touch ? '貪心鬼伸手要你的光：點下方按鈕布施給它，或快走開' : '貪心鬼伸手要你的光：按 Enter 布施給它，或快走開', 3000);
+    } else if (e.type === 'catch' || e.type === 'steal') {
       sfx.caught();
-      flashK = 1; vigEl.dataset.c = e.id;
-      const [f0, w0] = MERIT.caught[e.id], g = [-Math.min(-f0, state.fu), -Math.min(-w0, state.hui)];
-      if (g[0] || g[1]) { state.addMerit(`ghost:${e.id}:${Date.now()}`, g); gain(g, `被${gh.name}追上`); }
-      toast(e.id === 'selfish' ? '被自私鬼追上了：只想到自己，福德就少了一點' : '被懈怠鬼抓住了：全身懶洋洋的，智慧也少了一點');
+      flashK = 1; vigEl.dataset.c = e.id === 'greed' ? 'greed' : e.id;
+      let [f0, w0] = e.type === 'steal' ? MERIT.stolen : MERIT.caught[e.id];
+      if (e.id === 'greed' && e.type === 'catch') f0 = Math.min(-2, f0 + gentle().greed);
+      if (e.type === 'steal') shield = 0;
+      const g = [-Math.min(-f0, state.fu), -Math.min(-w0, state.hui)];
+      if (g[0] || g[1]) { state.addMerit(`ghost:${e.id}:${Date.now()}`, g); gain(g, e.type === 'steal' ? '光被搶走了' : `被${gh.name}追上`); }
+      toast({ selfish: '被自私鬼追上了：只想到自己，福德就少了一點', lazy: '被懈怠鬼抓住了：全身懶洋洋的，智慧也少了一點', greed: e.type === 'steal' ? '貪心鬼把你身上的光搶走了！下次可以主動布施給它' : '被貪心鬼追上了：它搶走了一點福德' }[e.id]);
     } else if (e.type === 'tame') {
       sfx.bless();
       state.setGhost({ [e.id]: true });
-      gain(state.addMerit(`tame:${e.id}`, MERIT.tame[e.id]), `感化${gh.name}`);
+      gain(state.addMerit(`tame:${e.id}`, MERIT.tame[e.id]), e.id === 'greed' ? '布施' : e.id === 'envy' ? '隨喜' : `感化${gh.name}`);
       tameNote(e.id);
-      if (trial.tamedCount === 2) setTimeout(() => { toast('✦ 心魔試煉完成！兩隻心魔都變成了小精靈'); gain(state.addMerit('mind:done', MERIT.mindDone), '心魔試煉完成'); }, 1800);
+      if (trial.tamedCount === 4) setTimeout(brightRealm, 2200);
+      renderLists();
     }
   }
 
-  /** 畫面下方的狀態提示，和畫面四周的氣息（被追時暗紫、懈怠時灰、受善念之光守護時金色） */
-  const mindEl = $('mind'), vigEl = $('mind-vig');
+  /** 畫面下方的狀態提示，和畫面四周的氣息（被追時暗紫、懈怠時灰、貪心時黃褐、嫉妒時綠色干擾、受善念之光守護時金色） */
+  const mindEl = $('mind'), vigEl = $('mind-vig'), envyEl = $('envy-fx');
   function renderMind(dt, paused, canChase) {
     const p = explorer.pos;
     let html = '', cls = '', k = 0, c = '';
     if (ghostShown && !paused) {
-      const th = trial.threat(p), slow = trial.speedFactor(p, shield, canChase);
-      if (shield > 0) { cls = 'is-light'; c = 'light'; k = 0.55; html = `<b>✦ 善念之光守護中・${Math.ceil(shield)}</b><span>${trial.tamedCount < 2 ? '追上心魔、碰到它，就能感化它' : '兩隻心魔都已經感化了'}</span>`; }
+      const th = trial.threat(p), slow = trial.speedFactor(p, shield, canChase), gr = trial.get('greed');
+      const how = touch ? '點下方按鈕' : '按 Enter';
+      if (!gr.tamed && gr.mode === 'beg') { cls = 'is-greed'; c = 'greed'; k = 0.55; html = `<b>貪心鬼伸手要你的光</b><span>${how}把善念之光布施給它，它就知足了；不給，它會撲上來搶</span>`; }
+      else if (shield > 0) { cls = 'is-light'; c = 'light'; k = 0.55; html = `<b>✦ 善念之光守護中・${Math.ceil(shield)}</b><span>${trial.tamedCount < 4 ? '追上自私鬼、懈怠鬼碰到它就能感化；貪心鬼要的話，可以布施給它' : '四大心魔都已經感化了'}</span>`; }
+      else if (trial.envyK > 0.05) { cls = 'is-envy'; c = 'envy'; k = 0.3 + trial.envyK * 0.4; html = `<b>⚠ 嫉妒鬼在干擾你！</b><span>走近它、${how}對它說一句隨喜的話，或撿善念光球趕走它</span>`; }
       else if (trial.debuff > 0) { cls = 'is-lazy'; c = 'lazy'; k = 0.75; html = '<b>Z z　懶洋洋的……</b><span>被懈怠鬼抓住了，等一下就有力氣</span>'; }
-      else if (th.gh) { cls = `is-${th.gh.id}`; c = th.gh.id; k = 0.3 + th.k * 0.6; html = `<b>⚠ ${esc(th.gh.name)}在追你！</b><span>繞開它、走到島民身邊，或去撿發光的善念光球</span>`; }
+      else if (th.gh) { cls = `is-${th.gh.id}`; c = th.gh.id; k = 0.3 + th.k * 0.6; html = `<b>⚠ ${esc(th.gh.name)}在追你！</b><span>${th.gh.id === 'greed' ? '它想搶你的光和福德：繞開它，或走到島民身邊' : '繞開它、走到島民身邊，或去撿發光的善念光球'}</span>`; }
       else if (slow < 0.93) { cls = 'is-lazy'; c = 'lazy'; k = (1 - slow) * 1.3; html = '<b>腳步變沉重了……</b><span>懈怠鬼就在附近，離它遠一點</span>'; }
     }
     const key = cls + html;
@@ -928,6 +1004,9 @@ function boot() {
     flashK = Math.max(0, flashK - dt * 1.2);
     vigK += (Math.min(1, k + flashK) - vigK) * Math.min(1, dt * 4);
     vigEl.style.opacity = vigK < 0.005 ? '0' : vigK.toFixed(3);
+    // 嫉妒鬼的干擾：畫面閃爍、邊緣被遮住一部分
+    envyFx += ((paused ? 0 : trial.envyK) - envyFx) * Math.min(1, dt * 3);
+    envyEl.style.opacity = envyFx < 0.01 ? '0' : envyFx.toFixed(3);
   }
 
   /* ---------- 鍵盤與觸控搖桿 ---------- */
@@ -953,7 +1032,7 @@ function boot() {
     }
     if (typing(e) || !onIsland || card.open || !$('modal').hidden) return;
     if (MOVE[e.code]) { keys.add(e.code); e.preventDefault(); }
-    if ((e.code === 'Enter' || e.code === 'Space') && (nearItem || nearId || nearFinale) && drawer.hidden) { e.preventDefault(); interact(); }
+    if ((e.code === 'Enter' || e.code === 'Space') && (nearItem || nearId || nearFinale || nearGhost) && drawer.hidden) { e.preventDefault(); interact(); }
     if (e.code === 'KeyQ') keys.add('TurnL');
     if (e.code === 'KeyE') keys.add('TurnR');
     if (e.code === 'Equal' || e.code === 'NumpadAdd') view.zoom(0.85);
@@ -1074,7 +1153,7 @@ function boot() {
     Promise.race([music.start(), slow]).then((ok) => {
       if (ok || loadingEl.classList.contains('is-out')) { loadingOut(); return; }
       loadingEl.classList.add('is-gate');
-      loadingEl.innerHTML = '<button type="button" class="gate-btn"><span class="gate-note" aria-hidden="true">♪</span><b>點一下，進入星雲之島</b><small>伴著音樂開始</small></button>';
+      loadingEl.innerHTML = '<button type="button" class="gate-btn"><span class="gate-note" aria-hidden="true">♪</span><b>點一下，進入三好四給島</b><small>伴著音樂開始</small></button>';
       const btn = loadingEl.querySelector('.gate-btn');
       loadingEl.addEventListener('click', () => { music.start(); loadingOut(); }, { once: true });      // 點畫面任何地方都可以
       btn.focus({ preventScroll: true });
@@ -1108,11 +1187,11 @@ function boot() {
     if (onIsland && !card.open && modal.hidden && intro.hidden && mindIntro.hidden && !talking && !finale) {
       mv.set(0, 0);
       for (const k of keys) if (MOVE[k]) { mv.x += MOVE[k][0]; mv.y += MOVE[k][1]; }
-      // 搖桿：中間一小圈不動（手指輕放不會亂走），推到七成左右就是全速
+      // 搖桿：中間一小圈不動（手指輕放不會亂走）；輕推慢慢走、推到九成才是全速，比較好控制
       const jl = joy.length();
-      if (jl > 0.12) { const k = Math.min(1, (jl - 0.12) / 0.55); mv.x += joy.x / jl * k; mv.y += joy.y / jl * k; }
-      if (keys.has('TurnL')) view.turn(dt * 1.6);
-      if (keys.has('TurnR')) view.turn(-dt * 1.6);
+      if (jl > 0.15) { const k = Math.pow(Math.min(1, (jl - 0.15) / 0.75), 1.4); mv.x += joy.x / jl * k; mv.y += joy.y / jl * k; }
+      if (keys.has('TurnL')) view.turn(dt * 1.3);
+      if (keys.has('TurnR')) view.turn(-dt * 1.3);
       const want = Math.min(1, mv.length()), pushing = want > 0.02;
       if (pushing) {
         // 方向以「現在的畫面」為準：往上推就是往畫面前方走
@@ -1122,7 +1201,7 @@ function boot() {
       }
       // 起步、停下都有一點加減速，不會瞬間全速或瞬間定住
       const goal = pushing ? WALK * want * trial.speedFactor(explorer.pos, shield, canChase) : 0;      // 懈怠鬼在旁邊時，腳步變沉重
-      speedNow += (goal - speedNow) * (1 - Math.exp(-(goal > speedNow ? 9 : 13) * dt));
+      speedNow += (goal - speedNow) * (1 - Math.exp(-(goal > speedNow ? 6 : 10) * dt));
       let moved = false;
       if (speedNow > 0.05) {
         const [dx, dz] = world.bridgeAssist(explorer.pos.x, explorer.pos.y, lastDir.x, lastDir.y);      // 走到橋頭時，自動對準橋面
@@ -1140,7 +1219,7 @@ function boot() {
         else if (!state.get().finale && summitArmed) { summitArmed = false; startFinale(); }
         fin = d < 9 && state.get().finale;
       }
-      setNear(ns, ni, fin);
+      setNear(ns, ni, fin, ghostShown ? trial.offer(explorer.pos, shield) : null);
       // 自選的目的地到了
       if (navTarget) { const s = world.spots.get(navTarget); if (Math.hypot(s.front[0] - explorer.pos.x, s.front[1] - explorer.pos.y) <= TALK_R) { navTarget = null; obT = 1; } }
     } else { speedNow = 0; view.autoFollow(explorer.facing, dt, false); }
@@ -1149,6 +1228,7 @@ function boot() {
     world.follow(explorer.pos.x, explorer.pos.y, fwd.x, fwd.y);
     explorer.update(dt);
     for (const v of world.npcs.values()) v.watch(explorer.pos.x, explorer.pos.y);
+    for (const v of world.villagers) v.watch(explorer.pos.x, explorer.pos.y);
     for (const w of watchers) w.watch(explorer.pos.x, explorer.pos.y);
     // 心魔試煉：心魔遊蕩、追人；撿光球、感化
     const showG = trialOn() && !finale;
@@ -1156,7 +1236,12 @@ function boot() {
     if (ghostShown && !paused && !NOINTRO && !state.get().ghosts?.intro) openMindIntro();
     if (!paused) shield = Math.max(0, shield - dt);
     const pscale = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(view.camera.fov) / 2));
-    for (const e of trial.update(dt, explorer.pos, { paused, canChase, canGreet: !paused, shield, scale: pscale })) onTrial(e);
+    for (const e of trial.update(dt, explorer.pos, { paused, canChase, canGreet: !paused, shield, scale: pscale, fwd: view.forward(), gentle: gentle() })) onTrial(e);
+    // 四大心魔還在時島上灰灰的；四隻都感化後是光明之境
+    gloomNow += ((ghostShown && !finale ? (4 - trial.tamedCount) / 4 * 0.5 : 0) - gloomNow) * Math.min(1, dt * 0.8);
+    lightNow += ((state.get().ghosts?.light ? 1 : 0) - lightNow) * Math.min(1, dt * 0.6);
+    world.setGloom(gloomNow, lightNow);
+    motes.update(dt, lightNow, pscale);
     aura.update(dt, explorer.pos.x, explorer.object.position.y, explorer.pos.y, shield > 0 && ghostShown, pscale);
     renderMind(dt, paused, canChase);
     if (onIsland) renderObjective(dt);
@@ -1165,7 +1250,7 @@ function boot() {
     glowNow += (brightness() - glowNow) * Math.min(1, dt * 1.5);
     const duskT = finale ? 1 : 0;
     if (Math.abs(duskT - duskNow) > 0.0005) { duskNow += (duskT - duskNow) * (1 - Math.exp(-(finale ? 0.8 : 1.1) * dt)); if (Math.abs(duskT - duskNow) < 0.002) duskNow = duskT; world.setDusk(duskNow); }
-    renderer.toneMappingExposure = (0.95 + 0.1 * glowNow) * (1 - 0.36 * duskNow);
+    renderer.toneMappingExposure = (0.95 + 0.1 * glowNow) * (1 - 0.36 * duskNow) * (1 - 0.08 * gloomNow) * (1 + 0.05 * lightNow);
     fw.update(dt, view.camera, renderer.domElement.height);
     world.update(t, dt);
     updateGuide();
@@ -1197,7 +1282,7 @@ function boot() {
   window.__isle = {
     world, explorer, card, view, state, renderer, guide, enterIsland, openDrawer, openSpot, startQuest, setNav, closeIntro, openTalk, startFinale, endFinale, fw,
     get finale() { return finale; },
-    trial, get shield() { return shield; }, set shield(v) { shield = v; }, gain, get pops() { return pops.length; }, set popRate(v) { popRate = v; },
+    trial, get shield() { return shield; }, set shield(v) { shield = v; }, giveLight, openEnvyTalk, onTrial, get nearGhost() { return nearGhost; }, get lightNow() { return lightNow; }, gain, get pops() { return pops.length; }, set popRate(v) { popRate = v; },
     keys, joy, buildMs, get near() { return nearId; }, get nearItem() { return nearItem; }, get talking() { return talking; }, get objective() { return objective(); }, get pixelRatio() { return prNow; },
     teleport(x, z) { explorer.place(x, z); },
     set timeScale(v) { timeScale = v; },
