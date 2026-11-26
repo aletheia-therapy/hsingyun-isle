@@ -32,7 +32,7 @@ async function callAnthropic({ system, messages, maxTokens }) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: process.env.AI_MODEL || 'claude-haiku-5-5', max_tokens: maxTokens, temperature: 0.4, system, messages }),
+    body: JSON.stringify({ model: process.env.AI_MODEL || 'claude-haiku-5-5', max_tokens: maxTokens, system, messages }),
   });
   const j = await r.json();
   if (!r.ok) throw new Error(j?.error?.message || `anthropic ${r.status}`);
