@@ -521,33 +521,48 @@ export class World {
     bake(g, this.scene, this.sprites);
   }
 
-  /** 白鷺：繞島緩緩飛行 */
+  /** 老鷹（黑鳶）：在島外高空盤旋，張開帶指狀飛羽的長翼，多半滑翔，偶爾慢慢拍幾下 */
   #birds() {
-    const birdM = new THREE.MeshStandardMaterial({ color: '#f4f2ec', roughness: 0.8, side: THREE.DoubleSide });
-    const make = () => {
-      const b = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6).scale(0.7, 0.6, 1.8), birdM); b.add(body);
-      const wings = [-1, 1].map((s) => {
-        const w = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.22), birdM);
-        w.geometry.translate(0.35 * s, 0, 0);
-        b.add(w); return w;
-      });
-      return { b, wings };
+    const mat = new THREE.MeshLambertMaterial({ color: '#4a3f36', side: THREE.DoubleSide });
+    const flat = (pts) => {
+      const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); pts.slice(1).forEach((q) => sh.lineTo(q[0], q[1]));
+      const g = new THREE.ShapeGeometry(sh); g.rotateX(Math.PI / 2); return g;
     };
-    const flock = (cx, cz, r, h, n, speed, seed) => {
-      const rand = rng(seed);
-      const birds = Array.from({ length: n }, (_, i) => ({ ...make(), ph: i * 0.45 + rand(), off: rand() * 1.5, dy: rand() * 1.5 }));
-      birds.forEach((x) => this.scene.add(x.b));
-      this.animated.push((t) => birds.forEach((x) => {
-        const a = t * speed + x.ph;
-        x.b.position.set(cx + Math.cos(a) * (r + x.off), h + x.dy + Math.sin(t * 0.7 + x.ph) * 0.4, cz + Math.sin(a) * (r + x.off));
-        x.b.rotation.y = -a + (speed > 0 ? Math.PI : 0);
-        const f = Math.sin(t * 6 + x.ph * 3) * 0.7;
-        x.wings[0].rotation.z = f; x.wings[1].rotation.z = -f;
-      }));
+    const innerG = flat([[0, .16], [.3, .21], [.6, .2], [.72, .17], [.72, -.27], [.5, -.32], [.25, -.33], [0, -.26]]);
+    const outerG = flat([[0, .17], [.18, .14], [.34, .08], [.44, .02], [.66, -.02], [.68, -.05], [.44, -.06], [.66, -.1], [.66, -.13], [.42, -.12], [.6, -.18], [.58, -.21], [.38, -.17], [.5, -.25], [.47, -.28], [.32, -.22], [.36, -.3], [.32, -.32], [.2, -.27], [.08, -.29], [0, -.27]]);
+    const tailG = flat([[-.07, -.32], [.07, -.32], [.15, -.62], [.05, -.66], [0, -.64], [-.05, -.66], [-.15, -.62]]);
+    const bodyG = new THREE.SphereGeometry(1, 12, 8), headG = new THREE.SphereGeometry(1, 10, 8);
+    const beakG = new THREE.ConeGeometry(.025, .08, 6); beakG.rotateX(Math.PI / 2);
+    const wing = (side) => {
+      const root = new THREE.Group(); root.scale.x = side; root.position.x = .05 * side;
+      root.add(new THREE.Mesh(innerG, mat));
+      const hand = new THREE.Group(); hand.position.x = .72; root.add(hand); hand.add(new THREE.Mesh(outerG, mat));
+      root.hand = hand; return root;
     };
-    flock(0, -4 * S, 22 * S, 18, 5, 0.08, 4);
-    flock(-14 * S, 10 * S, 9 * S, 11, 3, 0.15, 13);
+    const birds = [];
+    for (let i = 0; i < 6; i++) {
+      const b = new THREE.Group(); b.rotation.order = 'YXZ';
+      const body = new THREE.Mesh(bodyG, mat); body.scale.set(.1, .085, .36); b.add(body);
+      const head = new THREE.Mesh(headG, mat); head.scale.set(.075, .07, .09); head.position.set(0, .03, .36); b.add(head);
+      const beak = new THREE.Mesh(beakG, mat); beak.position.set(0, .01, .46); b.add(beak);
+      b.add(new THREE.Mesh(tailG, mat));
+      const L = wing(1), R = wing(-1); b.add(L, R);
+      b.scale.setScalar(.85 + (i % 3) * .18);
+      this.scene.add(b);
+      const dir = i % 3 === 2 ? -1 : 1;
+      birds.push({ b, L, R, dir, ph: i * 1.9, rad: (26 + i * 5 + (i % 2) * 7) * S, h: 15 + ((i * 5) % 9) * 1.6, sp: (.035 + (i % 4) * .007) * dir, off: i * .83 });
+    }
+    const cz = -4 * S;
+    this.animated.push((t) => birds.forEach((o) => {
+      const a = t * o.sp + o.off, r = o.rad + Math.sin(t * .05 + o.ph) * 4 * S;
+      o.b.position.set(Math.cos(a) * r, o.h + Math.sin(t * .25 + o.ph) * 1.5, cz + Math.sin(a) * r);
+      o.b.rotation.y = o.dir > 0 ? -a : Math.PI - a;
+      o.b.rotation.z = .22 * o.dir + Math.sin(t * .3 + o.ph) * .06;
+      o.b.rotation.x = -.04 + Math.sin(t * .25 + o.ph) * .05;
+      const gate = Math.max(0, Math.min(1, (Math.sin(t * .17 + o.ph * 2.3) - .72) * 6)), beat = Math.sin(t * 4.2 + o.ph);
+      const inner = .1 + gate * beat * .5, outer = -.08 + gate * Math.sin(t * 4.2 + o.ph - .6) * .45;
+      o.L.rotation.z = inner; o.R.rotation.z = -inner; o.L.hand.rotation.z = outer; o.R.hand.rotation.z = outer;
+    }));
   }
 
   /** 遠山：三層山稜，越遠越淡，像湖邊被群山環抱（依空氣透視上色） */
