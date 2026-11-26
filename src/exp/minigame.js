@@ -1,16 +1,17 @@
 import { TRIALS } from '../data/games.js';
 import { state } from '../state.js';
+import { MERIT } from '../data/merit.js';
 import { esc } from '../ui/chat.js';
 
 /**
  * 佛法挑戰：每一題都要答對才能前進。答錯會提示原因、可以再選；
- * 一題沒錯 +10 善念值、有錯但最後答對 +5。全部通過後呼叫 onPass。
+ * 每一題答對都會增加福德與智慧（一次就答對，得到的更多，見 data/merit.js）。全部通過後呼叫 onPass。
  */
 export function mountTrial(el, taskId, ctx, { passed = false, onPass } = {}) {
   const T = TRIALS[taskId];
   if (!T) { onPass?.(); return; }
   const N = T.rounds.length;
-  const award = (key, n) => { const got = state.addPoints(key, n); if (got) ctx.points?.(got); };
+  const award = (key, g, label) => ctx.points?.(state.addMerit(key, g), label);
   const head = `<div class="mg-head"><span class="st-step">佛法挑戰</span><b>${esc(T.title)}</b><small>全部答對才算過關</small></div><p class="exp-hint">${esc(T.hint)}</p>`;
   let r = 0, replay = false;
 
@@ -31,7 +32,7 @@ export function mountTrial(el, taskId, ctx, { passed = false, onPass } = {}) {
   const round = () => {
     const q = T.rounds[r];
     let miss = 0;
-    const done = () => { if (!replay) award(`trial:${taskId}:${r}`, miss ? 5 : 10); };
+    const done = () => { if (!replay) award(`trial:${taskId}:${r}`, miss ? MERIT.trialRetry : MERIT.trial, miss ? '答對了' : '一次就答對'); };
     if (q.type === 'sort') {
       const placed = new Map();
       let sel = null;

@@ -16,6 +16,7 @@ import { Fireworks } from './scene/fireworks.js';
 import { sfx } from './ui/sfx.js';
 import { MindTrial, makeAura, GHOSTS } from './scene/ghosts.js';
 import { SOURCES } from './data/sources.js';
+import { MERIT } from './data/merit.js';
 
 const $ = (id) => document.getElementById(id);
 const narrow = () => matchMedia('(max-width: 860px)').matches;
@@ -89,8 +90,16 @@ function boot() {
   let glowNow = brightness();
   state.on((s) => {
     renderLists();
-    if (s.chat.length > lastChatLen && s.chat.at(-1)?.role === 'assistant') chatSubs.forEach((f) => f());
+    const reply = s.chat.length > lastChatLen && s.chat.at(-1)?.role === 'assistant';
     lastChatLen = s.chat.length;
+    if (reply) {
+      chatSubs.forEach((f) => f());
+      // 向 AI 提問、得到回答：智慧增加（前五次）
+      queueMicrotask(() => {
+        const n = Object.keys(state.get().points).filter((k) => k.startsWith('ask:')).length;
+        if (n < MERIT.askMax) gain(state.addMerit(`ask:${n + 1}`, MERIT.ask), '提問');
+      });
+    }
   });
 
   /* ---------- 善念地圖（左側清單） ---------- */
@@ -158,7 +167,8 @@ function boot() {
     $('progress').textContent = String(n);
     $('progress-fill').style.width = `${(n / SPOTS.length) * 100}%`;
     for (const s of SPOTS) if (st.done.includes(s.id)) world.bloom(s.id, false);
-    $('score').textContent = String(state.score);
+    $('fu').textContent = String(state.fu);
+    $('hui').textContent = String(state.hui);
     $('badges').innerHTML = LEVELS.map((l) => { const ok = l.spots.every((x) => st.done.includes(x)); return `<span class="badge${ok ? ' is-on' : ''}" style="--bc:${l.color}" title="${l.badge}">${l.mark}</span>`; }).join('');
     const cur = LEVELS.find((l) => !l.spots.every((x) => st.done.includes(x)));
     $('level').innerHTML = cur ? `<b>${cur.name}</b><span>${cur.spots.filter((x) => st.done.includes(x)).length} / ${cur.spots.length}</span>` : '<b>全部過關！</b><span>島嶼已完全點亮</span>';
@@ -168,23 +178,61 @@ function boot() {
     tr.hidden = !st.done.includes('origin');
     if (!tr.hidden) tr.innerHTML = `<b>心魔試煉</b><span>${Object.entries(GHOSTS).map(([id, g]) => (st.ghosts?.[id] ? `<i class="tr-g is-ok">✓ ${g.tamedName}</i>` : `<i class="tr-g">${g.name}</i>`)).join('')}</span>`;
   }
-  /** 善念值飄字 */
-  function floatPoints(n) {
+  /**
+   * 福德、智慧增加（或減少）多少：從人物頭上冒出來、慢慢往上飄。
+   * 同時有好幾筆時一筆接一筆；人物被面板擋住時，改在面板外側顯示。
+   */
+  const popsEl = $('pops'), pops = [];
+  let popNext = 0;
+  function gain(g, label = '') {
+    if (!g || (!g[0] && !g[1])) return;
+    const chip = (cls, name, n) => (n ? `<span class="${cls}${n < 0 ? ' is-minus' : ''}"><i>${name}</i>${n > 0 ? '+' : '−'}${Math.abs(n)}</span>` : '');
     const el = document.createElement('div');
-    el.className = `points-pop${n < 0 ? ' is-minus' : ''}`; el.textContent = `${n < 0 ? '−' : '+'}${Math.abs(n)} 善念值`;
-    document.body.appendChild(el);
-    requestAnimationFrame(() => el.classList.add('is-in'));
-    setTimeout(() => el.remove(), 1400);
+    el.className = 'pop';
+    el.innerHTML = `${label ? `<em>${esc(label)}</em>` : ''}<p>${chip('pop-f', '福德', g[0])}${chip('pop-w', '智慧', g[1])}</p>`;
+    popsEl.appendChild(el);
+    const now = performance.now() / 1000, start = Math.max(now, popNext);
+    popNext = start + 0.7;
+    pops.push({ el, start });
     renderLists();
   }
-  /** 過關：大大的徽章 */
+  const POP_T = 2.4;
+  let popRate = 1;                                   // 自動化測試用：放慢飄字，方便截圖
+  function updatePops() {
+    if (!pops.length) return;
+    const now = performance.now() / 1000;
+    tmp.set(explorer.pos.x, explorer.object.position.y + 2.2, explorer.pos.y).project(view.camera);
+    let x = (tmp.x + 1) / 2 * innerWidth, y = (1 - tmp.y) / 2 * innerHeight;
+    if (tmp.z > 1) { x = innerWidth / 2; y = innerHeight * 0.4; }
+    const panel = card.open ? $('card') : !drawer.hidden ? drawer : null;
+    if (panel) {
+      const r = panel.getBoundingClientRect();
+      if (narrow()) y = Math.min(y, r.top - 12);
+      else x = Math.min(x, r.left - 110);
+    }
+    if (!narrow()) { const pl = placesEl.getBoundingClientRect(); if (pl.width && onIsland) x = Math.max(x, pl.right + 100); }      // 不要疊在左側的善念地圖上
+    x = Math.max(90, Math.min(innerWidth - 90, x)); y = Math.max(200, y);
+    for (let i = pops.length - 1; i >= 0; i--) {
+      const p = pops[i], t = (now - p.start) * popRate;
+      if (t < 0) { p.el.style.opacity = '0'; continue; }
+      if (t > POP_T) { p.el.remove(); pops.splice(i, 1); continue; }
+      const k = Math.min(1, t / POP_T), rise = 8 + (narrow() ? 56 : 78) * (1 - (1 - k) * (1 - k));      // 手機畫面上方比較擠，飄得低一點
+      const sc = t < 0.16 ? 0.55 + (t / 0.16) * 0.6 : t < 0.3 ? 1.15 - ((t - 0.16) / 0.14) * 0.15 : 1;
+      p.el.style.transform = `translate3d(${x.toFixed(0)}px, ${(y - rise).toFixed(0)}px, 0) translate(-50%, -100%) scale(${sc.toFixed(3)})`;
+      p.el.style.opacity = (t < 0.12 ? t / 0.12 : t > POP_T - 0.6 ? Math.max(0, (POP_T - t) / 0.6) : 1).toFixed(2);
+    }
+  }
+  /** 過關：大大的徽章（加上這一關的福德與智慧；徽章收起來時，人物頭上也會冒出來） */
+  let luToken = 0;
   function levelUp(l) {
+    const g = state.addMerit(`level:${l.id}`, MERIT.level);
     if (finale) return;                    // 煙火已經開始了，就不再跳出徽章
-    const box = $('levelup');
-    box.innerHTML = `<div class="lu-card" style="--bc:${l.color}"><span class="lu-mark">${l.mark}</span><p class="lu-t">過關！</p><h3>${l.name}</h3><p>獲得「${l.badge}」</p><button type="button" class="btn btn-primary">繼續</button></div>`;
+    const box = $('levelup'), my = ++luToken;
+    box.innerHTML = `<div class="lu-card" style="--bc:${l.color}"><span class="lu-mark">${l.mark}</span><p class="lu-t">過關！</p><h3>${l.name}</h3><p>獲得「${l.badge}」</p>${g ? `<p class="lu-gain"><span class="pop-f"><i>福德</i>+${g[0]}</span><span class="pop-w"><i>智慧</i>+${g[1]}</span></p>` : ''}<button type="button" class="btn btn-primary">繼續</button></div>`;
     box.hidden = false;
-    box.querySelector('button').addEventListener('click', () => { box.hidden = true; });
-    setTimeout(() => { box.hidden = true; }, 5000);
+    const close = () => { if (my !== luToken || box.hidden) return; box.hidden = true; gain(g, `過關・${l.badge}`); };
+    box.querySelector('button').addEventListener('click', close);
+    setTimeout(close, 5000);
   }
   let hintTimer = 0;
   const hint = (t, ms = 0) => { $('hint').textContent = t; $('hint').classList.toggle('is-on', !!t); clearTimeout(hintTimer); if (t && ms) hintTimer = setTimeout(() => hint(''), ms); };
@@ -238,6 +286,7 @@ function boot() {
     state.setTask(q.task.id, { quest: 'done' });
     $('breath').hidden = true;
     if (q.task.quest.type === 'escort') {
+      gain(state.addMerit(`q:${q.task.id}:escort`, MERIT.escort), '帶到了');
       toast(`✦ 帶到了！${q.task.npc.name}想跟你說句話`);
       openSpot(q.spot.id);
     } else {
@@ -246,13 +295,13 @@ function boot() {
     obT = 1;
     renderLists();
   }
-  /** 完成任務裡的一件事：記錄進度（重新整理也不會不見）、加善念值，全部完成就結束任務 */
-  function gotItem(t, idx, pts) {
+  /** 完成任務裡的一件事：記錄進度（重新整理也不會不見）、增加福德與智慧，全部完成就結束任務 */
+  function gotItem(t, idx, g, label = '') {
     const it = itemsOf(t.id)[idx];
     it.collect();
     const got = state.get().tasks[t.id]?.got || [];
     state.setTask(t.id, { got: got.includes(idx) ? got : [...got, idx] });
-    const p = state.addPoints(`q:${t.id}:${idx}`, pts); if (p) floatPoints(p);
+    gain(state.addMerit(`q:${t.id}:${idx}`, g), label);
     obT = 1;
     const pr = questProgress(t.id);
     if (pr.done >= pr.total) { finishQuest({ task: t, spot: SPOTS.find((s) => s.task === t.id) }); return true; }
@@ -300,7 +349,7 @@ function boot() {
     if (type === 'heart') {
       // 第一步：在蒲團上靜心呼吸；之後三把心火才會燃起（用對話熄滅）
       if (!list[0].done) stillTick(q, list[0], dt, () => {
-        gotItem(q.task, 0, 15);
+        gotItem(q.task, 0, MERIT.item.lotus, '心靜下來了');
         showQuestItems(q.task);
         toast('心靜下來了。湖邊燃起了三把心火');
         hint('走到火盆旁，選出用「戒、定、慧」哪一種方法熄滅它。', 7000);
@@ -312,7 +361,7 @@ function boot() {
       if (it.done || !it.group.visible) return;
       const gp = it.group.position;
       if (Math.hypot(gp.x - p.x, gp.z - p.y) < (it.kind === 'lamp' ? 2.2 : WORKS.has(it.kind) ? 2.1 : 1.7)) {
-        const fin = gotItem(q.task, i, 5);
+        const fin = gotItem(q.task, i, MERIT.item[it.kind] || [3, 1]);
         if (WORKS.has(it.kind)) discover(q.task, i);
         else if (!fin) { const pr = questProgress(q.task.id); toast(`${it.kind === 'lamp' ? '點亮了' : '撿到了'}！還差 ${pr.total - pr.done} 個`); }
       }
@@ -386,7 +435,8 @@ function boot() {
     go.addEventListener('click', () => {
       const miss = talking?.miss || 0;
       closeTalk();
-      if (!gotItem(t, idx, miss ? 3 : 5)) {
+      const k = fire ? 'fire' : 'person';
+      if (!gotItem(t, idx, MERIT.item[miss ? `${k}Retry` : k], fire ? `熄滅${d.name}` : '化解了火氣')) {
         const pr = questProgress(t.id), left = pr.total - pr.done;
         toast(fire ? `還有 ${left} 把心火` : `還有 ${left} 位組員`);
       }
@@ -588,7 +638,7 @@ function boot() {
         const before = LEVELS.filter((l) => l.spots.every((x) => state.isDone(x))).length;
         state.complete(id);
         if (!was) {
-          const got = state.addPoints(`done:${id}`, 20); if (got) floatPoints(got);
+          gain(state.addMerit(`done:${id}`, MERIT.done), '完成這一站');
           const lv = LEVELS.filter((l) => l.spots.every((x) => state.isDone(x)));
           if (lv.length > before) setTimeout(() => levelUp(lv.find((l) => l.spots.includes(id)) || lv.at(-1)), 900);
           world.bloom(id); const z = zoneOf(id), p = state.zoneProgress(z.id); toast(p.done >= p.total ? `✦ 完成「${z.name}」` : '✦ 島上又亮了一角');
@@ -604,7 +654,7 @@ function boot() {
       registerChat: (c) => { activeChat = c; },
       startQuest,
       questProgress,
-      points: (n) => floatPoints(n),
+      points: (g, label) => gain(g, label),
     },
   });
   function openSpot(id) {
@@ -839,7 +889,7 @@ function boot() {
     if (e.type === 'orb') {
       shield = 15;
       sfx.chime();
-      const p = state.addPoints(`orb:${e.i}`, 2); if (p) floatPoints(p);
+      gain(state.addMerit(`orb:${e.i}`, MERIT.orb), '善念之光');
       toast(trial.tamedCount < 2 ? '✦ 善念之光！15 秒內追上心魔，就能感化它' : '✦ 善念之光照亮了你');
     } else if (e.type === 'warn') {
       sfx.warn();
@@ -848,15 +898,15 @@ function boot() {
     } else if (e.type === 'catch') {
       sfx.caught();
       flashK = 1; vigEl.dataset.c = e.id;
-      const lose = Math.min(e.id === 'selfish' ? 5 : 3, state.score);
-      if (lose > 0) { state.addPoints(`ghost:${e.id}:${Date.now()}`, -lose); floatPoints(-lose); }
-      toast(e.id === 'selfish' ? '被自私鬼追上了：只想到自己，善念就少了一點' : '被懈怠鬼抓住了，全身懶洋洋的……');
+      const [f0, w0] = MERIT.caught[e.id], g = [-Math.min(-f0, state.fu), -Math.min(-w0, state.hui)];
+      if (g[0] || g[1]) { state.addMerit(`ghost:${e.id}:${Date.now()}`, g); gain(g, `被${gh.name}追上`); }
+      toast(e.id === 'selfish' ? '被自私鬼追上了：只想到自己，福德就少了一點' : '被懈怠鬼抓住了：全身懶洋洋的，智慧也少了一點');
     } else if (e.type === 'tame') {
       sfx.bless();
       state.setGhost({ [e.id]: true });
-      const p = state.addPoints(`tame:${e.id}`, 10); if (p) floatPoints(p);
+      gain(state.addMerit(`tame:${e.id}`, MERIT.tame[e.id]), `感化${gh.name}`);
       tameNote(e.id);
-      if (trial.tamedCount === 2) setTimeout(() => { toast('✦ 心魔試煉完成！兩隻心魔都變成了小精靈'); const b = state.addPoints('trial:done', 10); if (b) floatPoints(b); }, 1800);
+      if (trial.tamedCount === 2) setTimeout(() => { toast('✦ 心魔試煉完成！兩隻心魔都變成了小精靈'); gain(state.addMerit('mind:done', MERIT.mindDone), '心魔試煉完成'); }, 1800);
     }
   }
 
@@ -1123,6 +1173,7 @@ function boot() {
     view.update(dt, innerWidth, innerHeight);
     renderer.render(world.scene, view.camera);
     updateTags();
+    updatePops();
     // 依實際幀率調整解析度：連續偏慢才降低；要穩定很久、而且離上次降低超過 20 秒才慢慢升回
     // （避免在兩個解析度之間來回切換，每次切換都會讓畫面頓一下）
     fpsAcc += raw; fpsN++;
@@ -1146,7 +1197,7 @@ function boot() {
   window.__isle = {
     world, explorer, card, view, state, renderer, guide, enterIsland, openDrawer, openSpot, startQuest, setNav, closeIntro, openTalk, startFinale, endFinale, fw,
     get finale() { return finale; },
-    trial, get shield() { return shield; }, set shield(v) { shield = v; },
+    trial, get shield() { return shield; }, set shield(v) { shield = v; }, gain, get pops() { return pops.length; }, set popRate(v) { popRate = v; },
     keys, joy, buildMs, get near() { return nearId; }, get nearItem() { return nearItem; }, get talking() { return talking; }, get objective() { return objective(); }, get pixelRatio() { return prNow; },
     teleport(x, z) { explorer.place(x, z); },
     set timeScale(v) { timeScale = v; },

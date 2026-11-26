@@ -1,6 +1,7 @@
 import { TASKS } from '../data/tasks.js';
 import { ask, AIError } from '../ai/client.js';
 import { state } from '../state.js';
+import { MERIT } from '../data/merit.js';
 import { esc, richText } from '../ui/chat.js';
 import { drawVowCard } from '../ui/vowcard.js';
 
@@ -75,6 +76,7 @@ export function mount(el, spot, ctx) {
         aiVow = k >= 0 ? t.slice(k).replace(/^挑戰[:：]\s*/, '').split('\n')[0].replace(/[「」"*]/g, '').trim().slice(0, 40) || null : null;
         state.setVow({ ...(state.get().vow || {}), aiFeedback, aiVow });
         showAI(); renderChoices();
+        ctx.points?.(state.addMerit('vow:ai', MERIT.vowAI), 'AI 學習回饋');
       }
     } catch (err) {
       if (alive) aiOut.innerHTML = `<p class="msg-err">${esc(err instanceof AIError ? err.message : 'AI 服務暫時沒有回應，請稍後再試。')}</p>`;

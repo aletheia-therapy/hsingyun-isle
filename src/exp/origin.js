@@ -1,4 +1,5 @@
 import { state } from '../state.js';
+import { MERIT } from '../data/merit.js';
 import { esc } from '../ui/chat.js';
 
 /** 山門・源頭碑：導覽員小蓮用語音介紹三好四給，再玩快問快答與配對 */
@@ -61,7 +62,7 @@ export function mount(el, spot, ctx) {
         why.innerHTML = '<p class="mg-no">不太對喔，再想想看。</p>';
         return;
       }
-      const got = state.addPoints(`origin:${qi}`, miss ? 5 : 10); if (got) ctx.points?.(got);
+      ctx.points?.(state.addMerit(`origin:${qi}`, miss ? MERIT.originRetry : MERIT.originQ), miss ? '答對了' : '一次就答對');
       quiz.querySelectorAll('.opt').forEach((o, j) => { o.disabled = true; o.classList.toggle('is-right', j === q.c); });
       why.innerHTML = `<p class="mg-ok"><b>${miss ? '答對了！' : '一次就答對！'}</b>${esc(q.why)}</p><button type="button" class="btn btn-primary btn-sm">${qi < QUIZ.length - 1 ? '下一題' : '完成'}</button>`;
       why.querySelector('button').addEventListener('click', () => { qi++; renderQ(); });
@@ -81,7 +82,7 @@ export function mount(el, spot, ctx) {
       if (sel === null) { msg.textContent = '先點左邊的一個生活片段喔。'; return; }
       if (MATCH[sel].k === b.dataset.k) {
         placed.set(sel, true); sel = null; renderMatch();
-        if (placed.size === MATCH.length) el.querySelector('.mt-msg').innerHTML = '<b>✦ 全部配對正確！</b>';
+        if (placed.size === MATCH.length) { el.querySelector('.mt-msg').innerHTML = '<b>✦ 全部配對正確！</b>'; ctx.points?.(state.addMerit('match:origin', MERIT.match), '配對完成'); }
       } else {
         msg.textContent = '再想想看：這件事最主要帶給對方的是什麼？';
         b.classList.add('shake'); setTimeout(() => b.classList.remove('shake'), 450);

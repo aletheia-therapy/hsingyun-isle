@@ -464,17 +464,18 @@ details.tk-reflect[open] > summary { margin-bottom: 6px; }
 .dharma small { font-size: 12px; color: var(--muted); }
 
 .hud-row { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 6px; }
-.score { display: flex; align-items: baseline; gap: 6px; }
+.score { display: flex; align-items: baseline; gap: 12px; }
+.score > span { display: flex; align-items: baseline; gap: 4px; }
 .score small { font-size: 12px; color: var(--muted); }
-.score b { font: 900 20px var(--serif); color: var(--gold2); }
+.score b { font: 900 20px var(--serif); }
+.sc-f b { color: #b8792a; }
+.sc-w b { color: #2f6f95; }
 .badges { display: flex; gap: 4px; }
 .badge { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 700 12px var(--serif); color: #b9b3a5; background: #ece7db; border: 1.5px dashed #cfc7b4; }
 .badge.is-on { color: #fff; background: var(--bc); border: 1.5px solid #fff; box-shadow: 0 0 0 1.5px var(--bc); }
 .level { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; padding: 6px 10px; margin-bottom: 8px; border-radius: 10px; background: #f3ecdc; }
 .level b { font-family: var(--serif); color: var(--ink); }
 .level span { color: var(--muted); }
-.points-pop { position: fixed; left: 50%; top: 40%; transform: translate(-50%, 0); z-index: 80; font: 900 26px var(--serif); color: #b8863b; text-shadow: 0 2px 0 #fff, 0 0 18px rgba(255, 255, 255, .9); pointer-events: none; opacity: 0; transition: transform 1.3s ease-out, opacity .3s; }
-.points-pop.is-in { opacity: 1; transform: translate(-50%, -70px); }
 .levelup { position: fixed; inset: 0; z-index: 75; display: grid; place-items: center; background: rgba(30, 26, 20, .35); }
 .lu-card { background: var(--paper); border-radius: 20px; padding: 26px 40px; text-align: center; box-shadow: var(--shadow); animation: pop .4s cubic-bezier(.2, 1.4, .4, 1); }
 .lu-mark { display: inline-grid; place-items: center; width: 84px; height: 84px; border-radius: 50%; background: var(--bc); color: #fff; font: 900 40px var(--serif); box-shadow: 0 0 0 6px #fff, 0 0 0 8px var(--bc); }
@@ -671,8 +672,6 @@ body.finale .ai-fab, body.finale .help-btn, body.finale .brand, body.finale .dis
 @media (max-width: 860px) { .finale { padding-bottom: 5vh; } .fin-eyebrow { letter-spacing: .3em; } }
 
 /* ===== 心魔試煉：自私鬼、懈怠鬼、善念光球 ===== */
-.points-pop.is-minus { color: #6a4a8a; }
-.points-pop.is-minus.is-in { transform: translate(-50%, 40px); }
 .trial { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; padding: 5px 8px 5px 10px; margin: -2px 0 8px; border-radius: 10px; background: #efe9f5; }
 .trial[hidden] { display: none !important; }
 .trial b { font-family: var(--serif); color: #4a3566; white-space: nowrap; }
@@ -748,4 +747,22 @@ body:not(.on-island) .mind, body:not(.on-island) .mind-vig { display: none; }
 .mn-foot .btn { flex: none; }
 @media (min-width: 861px) and (max-width: 1240px) { .mind-note { left: calc(50% + 150px); width: min(420px, calc(100vw - 340px)); } }
 @media (max-width: 860px) { .mind-note { bottom: 168px; } .mind-note h3 { font-size: 17px; } .mind-note blockquote { font-size: 15px; } }
+
+/* ===== 福德與智慧：每做到一件事，從人物頭上冒出來 ===== */
+.pops { position: absolute; inset: 0; z-index: 30; pointer-events: none; overflow: hidden; }
+.pop { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; opacity: 0; will-change: transform, opacity; white-space: nowrap; }
+.pop em { font: 700 12.5px/1.6 var(--serif); font-style: normal; letter-spacing: .06em; color: #fff; background: rgba(44, 42, 38, .78); padding: 0 10px; border-radius: 999px; }
+.pop p { margin: 0; display: flex; gap: 10px; }
+.pop span, .lu-gain span { display: inline-flex; align-items: center; gap: 4px; font: 900 24px/1.15 var(--serif); text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 0 2px 0 #fff, 0 0 4px #fff, 0 0 12px rgba(255, 255, 255, .95); }
+.pop i, .lu-gain i { font: 700 12.5px/1.5 var(--sans); font-style: normal; color: #fff; padding: 0 7px; border-radius: 999px; text-shadow: none; }
+.pop-f { color: #a8661a; }
+.pop-f i { background: #d39a2c; }
+.pop-w { color: #235f88; }
+.pop-w i { background: #4a8bb5; }
+.pop .is-minus { color: #6a4a8a; }
+.pop .is-minus i { background: #7a5aa6; }
+.lu-gain { display: flex; justify-content: center; gap: 12px; margin: -6px 0 12px !important; }
+.lu-gain span { font-size: 19px; text-shadow: none; }
+@media (max-width: 860px) { .pop span { font-size: 20px; } .pop i { font-size: 11.5px; } }
+body.finale .pops { opacity: 0; }
 

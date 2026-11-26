@@ -22,6 +22,7 @@
 <div id="app">
   <canvas id="scene" tabindex="0" aria-label="星雲之島：東方山水小島的 3D 場景。用 WASD 或方向鍵走路，靠近島民按 Enter 對話。"></canvas>
   <div id="pins" class="pins" aria-hidden="true"></div>
+  <div id="pops" class="pops" aria-hidden="true"></div>
 
   <!-- ============ 首頁 ============ -->
   <section id="home" class="home" aria-labelledby="home-title">
@@ -70,7 +71,7 @@
     </div>
     <div class="progress-bar" aria-hidden="true"><i id="progress-fill"></i></div>
     <div class="hud-row">
-      <div class="score"><small>善念值</small><b id="score">0</b></div>
+      <div class="score" title="福慧雙修：動手幫忙累積福德，學懂佛法增長智慧"><span class="sc-f"><small>福德</small><b id="fu">0</b></span><span class="sc-w"><small>智慧</small><b id="hui">0</b></span></div>
       <div id="badges" class="badges" aria-label="已獲得的徽章"></div>
     </div>
     <div id="level" class="level"></div>
@@ -135,8 +136,8 @@
       <h2 id="mind-title">心魔試煉</h2>
       <p class="intro-lede">走在行善的路上，心裡的習氣也會跑出來。島上有兩隻心魔在遊蕩：</p>
       <ul class="mi-list">
-        <li><i class="mi-ic is-selfish" aria-hidden="true"></i><div><b>自私鬼</b><span>只想到自己。發現你就會追上來；被它追上，善念值會減少。</span></div></li>
-        <li><i class="mi-ic is-lazy" aria-hidden="true"></i><div><b>懈怠鬼</b><span>讓人提不起勁。靠近它，腳步會越來越沉重；被它抓住，會懶洋洋好幾秒。</span></div></li>
+        <li><i class="mi-ic is-selfish" aria-hidden="true"></i><div><b>自私鬼</b><span>只想到自己。發現你就會追上來；被它追上，福德會減少。</span></div></li>
+        <li><i class="mi-ic is-lazy" aria-hidden="true"></i><div><b>懈怠鬼</b><span>讓人提不起勁。靠近它，腳步會越來越沉重；被它抓住，智慧會減少，還會懶洋洋好幾秒。</span></div></li>
         <li><i class="mi-ic is-orb" aria-hidden="true"></i><div><b>善念光球</b><span>路上發光的小蓮花。撿起來，善念之光會守護你 15 秒，心魔會怕得躲開；這時追上去碰到它，就能把它感化成友善的小精靈。</span></div></li>
       </ul>
       <p class="mi-tip">遇到心魔，可以繞開它；站點前和島民身邊是安全的。修行不是消滅煩惱，而是看見它、轉化它。</p>

@@ -4,6 +4,7 @@ import { SOURCES } from '../data/sources.js';
 import { TRIALS } from '../data/games.js';
 import { ask, AIError } from '../ai/client.js';
 import { state } from '../state.js';
+import { MERIT } from '../data/merit.js';
 import { esc, richText, sourcesHTML, OFFLINE_NOTE } from '../ui/chat.js';
 import { mountTrial } from './minigame.js';
 
@@ -140,9 +141,7 @@ export function mount(el, spot, ctx) {
   el.querySelectorAll('.tk-opts .opt').forEach((b) => b.addEventListener('click', () => {
     const i = Number(b.dataset.i);
     state.setTask(task.id, { choice: i, ai: null });
-    const pts = { best: 30, ok: 20, weak: 10 }[task.options[i].k] || 10;
-    const got = state.addPoints(`choice:${task.id}`, pts);
-    if (got) ctx.points?.(got);
+    ctx.points?.(state.addMerit(`choice:${task.id}`, MERIT.choice[task.options[i].k] || MERIT.choice.weak), '回到生活');
     showChoice(i, true);
   }));
 
@@ -155,6 +154,7 @@ export function mount(el, spot, ctx) {
     try {
       const r = await ask('reflect', { taskId: task.id, text });
       state.setTask(task.id, { reflect: text, reflectAi: r.via === 'offline' ? null : r });
+      ctx.points?.(state.addMerit(`reflect:${task.id}`, MERIT.reflect), '寫下自己的話');
       if (alive) fb.innerHTML = r.via === 'offline' ? `<p class="via via-off">AI 暫時無法連線，你寫下的句子已經保存。可以對照下面的段落，自己檢查看看。</p>${sourcesHTML(r.sources, true)}` : aiBlock(r, 'AI 的回饋');
     } catch (e) {
       if (alive) fb.innerHTML = `<p class="msg-err">${esc(e instanceof AIError ? e.message : 'AI 服務暫時沒有回應，請稍後再試。')}</p>`;
