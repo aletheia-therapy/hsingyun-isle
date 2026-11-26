@@ -1046,9 +1046,9 @@ function boot() {
     const pad = $('joystick'), knob = pad.querySelector('i');
     pad.hidden = false;
     let id = null, cx = 0, cy = 0;
-    const R = 46;
+    const R = () => pad.clientWidth * 0.38;
     pad.addEventListener('pointerdown', (e) => { id = e.pointerId; const r = pad.getBoundingClientRect(); cx = r.left + r.width / 2; cy = r.top + r.height / 2; pad.setPointerCapture(id); move(e); });
-    const move = (e) => { if (e.pointerId !== id) return; let dx = e.clientX - cx, dy = e.clientY - cy; const d = Math.hypot(dx, dy); if (d > R) { dx *= R / d; dy *= R / d; } knob.style.transform = `translate(${dx}px, ${dy}px)`; joy.set(dx / R, -dy / R); };
+    const move = (e) => { if (e.pointerId !== id) return; let dx = e.clientX - cx, dy = e.clientY - cy; const d = Math.hypot(dx, dy); const r = R(); if (d > r) { dx *= r / d; dy *= r / d; } knob.style.transform = `translate(${dx}px, ${dy}px)`; joy.set(dx / r, -dy / r); };
     pad.addEventListener('pointermove', move);
     const end = (e) => { if (e.pointerId !== id) return; id = null; joy.set(0, 0); knob.style.transform = ''; };
     pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
