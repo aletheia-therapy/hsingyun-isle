@@ -7,7 +7,7 @@
  *   AI_MODEL           選用，預設 claude-haiku-5-5
  *   OPENAI_API_KEY     選用；未設定 Anthropic 金鑰時改用 OpenAI
  *   OPENAI_MODEL       選用，預設 gpt-4o-mini
- *   AI_DAILY_CAP       選用，全站每日請求上限（預設 4000）
+ *   AI_DAILY_CAP       選用，全站每日請求上限（預設 150）
  * 金鑰只存在伺服器端，前端程式碼不含任何金鑰。
  */
 import { buildPrompt } from '../src/ai/prompts.js';
@@ -25,7 +25,7 @@ function limited(ip) {
   const d = new Date().toISOString().slice(0, 10);
   if (d !== day) { day = d; dayCount = 0; }
   dayCount++;
-  return arr.length > 12 || dayCount > Number(process.env.AI_DAILY_CAP || 4000);
+  return arr.length > 12 || dayCount > Number(process.env.AI_DAILY_CAP || 150);
 }
 
 async function callAnthropic({ system, messages, maxTokens }) {

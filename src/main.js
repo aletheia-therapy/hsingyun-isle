@@ -10,7 +10,7 @@ import { Card } from './ui/card.js';
 import { Chat, esc } from './ui/chat.js';
 import { music } from './ui/music.js';
 import { state } from './state.js';
-import { GUIDE, ABOUT } from './ui/pages.js';
+import { GUIDE, ABOUT, TOUR, MUSIC } from './ui/pages.js';
 import { LEVELS } from './data/games.js';
 import { Fireworks } from './scene/fireworks.js';
 import { sfx } from './ui/sfx.js';
@@ -1122,7 +1122,7 @@ function boot() {
   }
   const modal = $('modal');
   function openModal(which) {
-    $('modal-body').innerHTML = which === 'about' ? ABOUT : GUIDE;
+    $('modal-body').innerHTML = ({ about: ABOUT, tour: TOUR, music: MUSIC })[which] || GUIDE;
     modal.hidden = false;
     modal.querySelector('.modal-close').focus();
     modal.querySelector('[data-reset]')?.addEventListener('click', (e) => {

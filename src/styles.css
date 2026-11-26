@@ -790,3 +790,5 @@ body:not(.on-island) .mind, body:not(.on-island) .mind-vig { display: none; }
 @media (max-width: 860px) { .pop span { font-size: 20px; } .pop i { font-size: 11.5px; } }
 body.finale .pops { opacity: 0; }
 
+.link-tour { font-weight: 700; }
+.home-note .link-btn { margin-left: .6em; font-size: inherit; }
