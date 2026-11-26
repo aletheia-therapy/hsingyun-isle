@@ -1,3 +1,4 @@
+import { perm } from '../data/shuffle.js';
 import { TASKS } from '../data/tasks.js';
 import { VIDEOS } from '../data/videos.js';
 import { SOURCES } from '../data/sources.js';
@@ -38,6 +39,7 @@ export function mount(el, spot, ctx) {
   const reveal = (node) => { node.hidden = false; requestAnimationFrame(() => node.scrollIntoView({ behavior: 'smooth', block: 'nearest' })); };
   const steps = ['島上任務', '生活情境', '佛法小課', '佛法挑戰'];
 
+  const ord = perm(task.options.length);
   el.innerHTML = `
     <div class="tk" style="--tc:${task.color}">
       <div class="tk-head"><span class="tk-group">${task.group}</span><h2 class="tk-virtue">${esc(task.virtue)}</h2><span class="tk-count">島民 ${doneCount()} / 7</span></div>
@@ -53,9 +55,9 @@ export function mount(el, spot, ctx) {
         <p class="exp-hint">在島上幫了忙，現在換個場景：如果這件事發生在你的生活裡呢？</p>
         <div class="tk-scene"><span class="tk-label">情境</span><p>${esc(task.scene)}</p></div>
         <h3 class="tk-q">${esc(task.q)}</h3>
-        <div class="opts tk-opts">${task.options.map((o, i) => `<button type="button" class="opt" data-i="${i}"><b>${L[i]}</b><span>${esc(o.t)}</span></button>`).join('')}</div>
+        <div class="opts tk-opts">${ord.map((i, j) => `<button type="button" class="opt" data-i="${i}"><b>${L[j]}</b><span>${esc(task.options[i].t)}</span></button>`).join('')}</div>
         <section class="tk-ai" hidden></section>
-        <details class="tk-all" hidden><summary>看看每個選擇可能帶來的影響（作品解說）</summary><ul>${task.options.map((o, i) => `<li><b>${L[i]}</b>${esc(o.n)}</li>`).join('')}</ul></details>
+        <details class="tk-all" hidden><summary>看看每個選擇可能帶來的影響（作品解說）</summary><ul>${ord.map((i, j) => `<li><b>${L[j]}</b>${esc(task.options[i].n)}</li>`).join('')}</ul></details>
       </section>
       <section class="st-dharma" hidden>
         <span class="st-step">佛法小課</span>
@@ -109,7 +111,7 @@ export function mount(el, spot, ctx) {
     stepAt(4);
   };
   const showChoice = (i, fresh) => {
-    el.querySelectorAll('.tk-opts .opt').forEach((b, j) => { b.disabled = true; b.classList.toggle('is-picked', j === i); b.classList.toggle('is-dim', j !== i); });
+    el.querySelectorAll('.tk-opts .opt').forEach((b) => { const j = Number(b.dataset.i); b.disabled = true; b.classList.toggle('is-picked', j === i); b.classList.toggle('is-dim', j !== i); });
     el.querySelector('.tk-all').hidden = false;
     aiBox.hidden = false;
     dharma.hidden = false;

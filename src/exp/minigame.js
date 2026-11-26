@@ -1,3 +1,4 @@
+import { perm } from '../data/shuffle.js';
 import { TRIALS } from '../data/games.js';
 import { state } from '../state.js';
 import { MERIT } from '../data/merit.js';
@@ -35,12 +36,13 @@ export function mountTrial(el, taskId, ctx, { passed = false, onPass } = {}) {
     const done = () => { if (!replay) award(`trial:${taskId}:${r}`, miss ? MERIT.trialRetry : MERIT.trial, miss ? '答對了' : '一次就答對'); };
     if (q.type === 'sort') {
       const placed = new Map();
+      const pool = perm(q.items.length);
       let sel = null;
       const draw = () => {
         el.innerHTML = `${head}
           <p class="mg-round">第 ${r + 1} / ${N} 題</p>
           <div class="mg-q">${esc(q.q)}</div>
-          <div class="sort-pool">${q.items.map((it, i) => placed.has(i) ? '' : `<button type="button" class="thought${sel === i ? ' is-sel' : ''}" data-i="${i}">${esc(it.t)}</button>`).join('') || '<p class="zz-all">全部放好了！</p>'}</div>
+          <div class="sort-pool">${pool.map((i) => [q.items[i], i]).map(([it, i]) => placed.has(i) ? '' : `<button type="button" class="thought${sel === i ? ' is-sel' : ''}" data-i="${i}">${esc(it.t)}</button>`).join('') || '<p class="zz-all">全部放好了！</p>'}</div>
           <div class="sort-bins" style="grid-template-columns: repeat(${Math.min(q.bins.length, 4)}, 1fr)">${q.bins.map((b, bi) => `<div class="bin bin-${bi % 4}" data-b="${bi}" role="button" tabindex="0"><b>${esc(b)}</b>${[...placed.keys()].filter((i) => q.items[i].b === bi).map((i) => `<span>${esc(q.items[i].t)}${q.items[i].hint && q.bins.length === 2 && bi === 1 ? `<em>${esc(q.items[i].hint)}</em>` : ''}</span>`).join('')}</div>`).join('')}</div>
           <div class="qz-why" aria-live="polite"></div>`;
         el.querySelectorAll('.thought').forEach((b) => b.addEventListener('click', () => { sel = Number(b.dataset.i); draw(); }));
@@ -69,7 +71,7 @@ export function mountTrial(el, taskId, ctx, { passed = false, onPass } = {}) {
     el.innerHTML = `${head}
       <p class="mg-round">第 ${r + 1} / ${N} 題</p>
       <div class="mg-q${q.type === 'rewrite' ? ' mg-harsh' : ''}">${q.type === 'rewrite' ? '把這句刺耳的話換成「愛語」：' : ''}${esc(q.q)}</div>
-      <div class="opts">${q.a.map((a, i) => `<button type="button" class="opt" data-i="${i}">${esc(a)}</button>`).join('')}</div>
+      <div class="opts">${perm(q.a.length).map((i) => `<button type="button" class="opt" data-i="${i}">${esc(q.a[i])}</button>`).join('')}</div>
       <div class="qz-why" aria-live="polite"></div>`;
     el.querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => {
       const i = Number(b.dataset.i), box = el.querySelector('.qz-why');
@@ -80,7 +82,7 @@ export function mountTrial(el, taskId, ctx, { passed = false, onPass } = {}) {
         return;
       }
       done();
-      el.querySelectorAll('.opt').forEach((o, j) => { o.disabled = true; o.classList.toggle('is-right', j === q.c); });
+      el.querySelectorAll('.opt').forEach((o) => { o.disabled = true; o.classList.toggle('is-right', Number(o.dataset.i) === q.c); });
       box.innerHTML = `<p class="mg-ok"><b>${miss ? '答對了！' : '一次就答對！'}</b>${esc(q.why)}</p>`;
       next(box, r === N - 1);
     }));

@@ -1,3 +1,4 @@
+import { perm } from '../data/shuffle.js';
 import { state } from '../state.js';
 import { MERIT } from '../data/merit.js';
 import { esc } from '../ui/chat.js';
@@ -53,7 +54,7 @@ export function mount(el, spot, ctx) {
     }
     const q = QUIZ[qi];
     miss = 0;
-    quiz.innerHTML = `<p class="exp-hint">第 ${qi + 1} / ${QUIZ.length} 題・答對才能前進</p><h3 class="qz-q">${esc(q.q)}</h3><div class="opts">${q.a.map((a, i) => `<button type="button" class="opt" data-i="${i}">${esc(a)}</button>`).join('')}</div><div class="qz-why" aria-live="polite"></div>`;
+    quiz.innerHTML = `<p class="exp-hint">第 ${qi + 1} / ${QUIZ.length} 題・答對才能前進</p><h3 class="qz-q">${esc(q.q)}</h3><div class="opts">${perm(q.a.length).map((i) => `<button type="button" class="opt" data-i="${i}">${esc(q.a[i])}</button>`).join('')}</div><div class="qz-why" aria-live="polite"></div>`;
     quiz.querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => {
       const i = Number(b.dataset.i), why = quiz.querySelector('.qz-why');
       if (i !== q.c) {
@@ -63,7 +64,7 @@ export function mount(el, spot, ctx) {
         return;
       }
       ctx.points?.(state.addMerit(`origin:${qi}`, miss ? MERIT.originRetry : MERIT.originQ), miss ? '答對了' : '一次就答對');
-      quiz.querySelectorAll('.opt').forEach((o, j) => { o.disabled = true; o.classList.toggle('is-right', j === q.c); });
+      quiz.querySelectorAll('.opt').forEach((o) => { o.disabled = true; o.classList.toggle('is-right', Number(o.dataset.i) === q.c); });
       why.innerHTML = `<p class="mg-ok"><b>${miss ? '答對了！' : '一次就答對！'}</b>${esc(q.why)}</p><button type="button" class="btn btn-primary btn-sm">${qi < QUIZ.length - 1 ? '下一題' : '完成'}</button>`;
       why.querySelector('button').addEventListener('click', () => { qi++; renderQ(); });
     }));
@@ -71,11 +72,14 @@ export function mount(el, spot, ctx) {
 
   // 配對遊戲
   const placed = new Map(); let sel = null;
-  const order = MATCH.map((_, i) => i).sort(() => Math.random() - 0.5);
+  const order = perm(MATCH.length);
+  const keys = [...new Set(MATCH.map((m) => m.k))];
+  let kOrder = perm(keys.length);
+  if (keys.length > 1 && order.every((i, j) => MATCH[i].k === keys[kOrder[j]])) kOrder = perm(keys.length);
   const renderMatch = () => {
     const l = el.querySelector('.mt-l'), r = el.querySelector('.mt-r');
     l.innerHTML = order.map((i) => `<button type="button" class="mt-card${placed.has(i) ? ' is-ok' : ''}${sel === i ? ' is-sel' : ''}" data-i="${i}" ${placed.has(i) ? 'disabled' : ''}>${esc(MATCH[i].t)}${placed.has(i) ? `<em>${esc(MATCH[i].k)}</em>` : ''}</button>`).join('');
-    r.innerHTML = MATCH.map((m) => `<button type="button" class="mt-key" data-k="${esc(m.k)}">${esc(m.k)}</button>`).join('');
+    r.innerHTML = kOrder.map((j) => `<button type="button" class="mt-key" data-k="${esc(keys[j])}">${esc(keys[j])}</button>`).join('');
     l.querySelectorAll('.mt-card').forEach((b) => b.addEventListener('click', () => { sel = Number(b.dataset.i); renderMatch(); }));
     r.querySelectorAll('.mt-key').forEach((b) => b.addEventListener('click', () => {
       const msg = el.querySelector('.mt-msg');
